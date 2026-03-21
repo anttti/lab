@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anttimattila/lab/internal/db"
+	"lab/internal/db"
 )
 
 func strPtr(s string) *string { return &s }

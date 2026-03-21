@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anttimattila/lab/internal/claude"
-	"github.com/anttimattila/lab/internal/db"
+	"lab/internal/claude"
+	"lab/internal/db"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 )

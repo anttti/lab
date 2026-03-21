@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	"github.com/anttimattila/lab/internal/db"
+	"lab/internal/db"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/key"
 )

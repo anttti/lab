@@ -3,8 +3,8 @@ package tui
 import (
 	"time"
 
-	"github.com/anttimattila/lab/internal/db"
-	gosync "github.com/anttimattila/lab/internal/sync"
+	"lab/internal/db"
+	gosync "lab/internal/sync"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

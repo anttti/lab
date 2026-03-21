@@ -9,8 +9,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/anttimattila/lab/internal/glab"
-	"github.com/anttimattila/lab/internal/sync"
+	"lab/internal/glab"
+	"lab/internal/sync"
 	"github.com/spf13/cobra"
 )
 

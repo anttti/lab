@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/anttimattila/lab/internal/db"
+	"lab/internal/db"
 )
 
 // BuildPrompt constructs a prompt string from a thread and the repository path.

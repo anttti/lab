@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/anttimattila/lab/internal/db"
-	"github.com/anttimattila/lab/internal/glab"
+	"lab/internal/db"
+	"lab/internal/glab"
 )
 
 // GlabClient is the interface the Engine uses to talk to GitLab via glab.

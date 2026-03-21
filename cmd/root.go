@@ -5,10 +5,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/anttimattila/lab/internal/db"
-	"github.com/anttimattila/lab/internal/glab"
-	gosync "github.com/anttimattila/lab/internal/sync"
-	"github.com/anttimattila/lab/internal/tui"
+	"lab/internal/db"
+	"lab/internal/glab"
+	gosync "lab/internal/sync"
+	"lab/internal/tui"
 	"github.com/spf13/cobra"
 )
 

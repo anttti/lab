@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anttimattila/lab/internal/db"
-	"github.com/anttimattila/lab/internal/glab"
+	"lab/internal/db"
+	"lab/internal/glab"
 )
 
 // mockGlab implements GlabClient for testing.

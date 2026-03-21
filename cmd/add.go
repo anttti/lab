@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/anttimattila/lab/internal/glab"
+	"lab/internal/glab"
 	"github.com/spf13/cobra"
 )
 

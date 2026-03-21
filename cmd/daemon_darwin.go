@@ -3,7 +3,7 @@
 
 package cmd
 
-import "github.com/anttimattila/lab/internal/daemon"
+import "lab/internal/daemon"
 
 func daemonInstall(binary, interval string) error {
 	return daemon.Install(binary, interval)

@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/anttimattila/lab/internal/daemon"
+	"lab/internal/daemon"
 	"github.com/spf13/cobra"
 )
 

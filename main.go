@@ -1,7 +1,7 @@
 // main.go
 package main
 
-import "github.com/anttimattila/lab/cmd"
+import "lab/cmd"
 
 func main() {
 	cmd.Execute()

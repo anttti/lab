@@ -16,18 +16,14 @@ A terminal UI for managing GitLab merge requests, focused on surfacing unresolve
 - **[glab](https://gitlab.com/gitlab-org/cli)** CLI tool, installed and authenticated (`glab auth login`)
 - **macOS** (daemon/launchd features and terminal launching use macOS-specific APIs)
 - **[Claude Code](https://claude.ai/claude-code)** CLI (`claude` on PATH) for the code fix workflow
+- **[`task`](https://taskfile.dev/)** for task running
 
 ## Installation
 
-```bash
-go install github.com/anttimattila/lab@latest
-```
-
-Or build from source:
+Build from source:
 
 ```bash
-git clone <repo-url> && cd lab
-go build -o lab .
+task build
 ```
 
 ## Quick start

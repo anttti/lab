@@ -2,19 +2,26 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/anttimattila/lab/internal/claude"
 	"github.com/anttimattila/lab/internal/db"
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/key"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 type threadState int
 
 const (
-	threadViewing threadState = iota
+	threadViewing      threadState = iota
+	threadClaudeChoice             // waiting for s/a/esc
 )
+
+// claudeLaunchedMsg is sent after attempting to launch Claude.
+type claudeLaunchedMsg struct{ err error }
 
 // threadModel shows the full content of a single thread.
 type threadModel struct {
@@ -40,25 +47,87 @@ func newThreadModel(root *Model, thread db.Thread, mr db.MergeRequest, repo stri
 // update handles input for the thread view.
 func (m *threadModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch {
-		case key.Matches(msg, Keys.Quit):
-			return root, tea.Quit
+	case claudeLaunchedMsg:
+		if msg.err != nil {
+			m.err = msg.err.Error()
+		}
+		return root, nil
 
-		case key.Matches(msg, Keys.Up):
-			if m.scroll > 0 {
-				m.scroll--
+	case tea.KeyMsg:
+		switch m.state {
+		case threadViewing:
+			switch {
+			case key.Matches(msg, Keys.Quit):
+				return root, tea.Quit
+
+			case key.Matches(msg, Keys.Up):
+				if m.scroll > 0 {
+					m.scroll--
+				}
+
+			case key.Matches(msg, Keys.Down):
+				m.scroll++
+
+			case key.Matches(msg, Keys.Back):
+				root.current = viewMRDetail
+				return root, root.mrDetail.loadThreads()
+
+			case key.Matches(msg, Keys.Claude):
+				m.state = threadClaudeChoice
+				m.err = ""
 			}
 
-		case key.Matches(msg, Keys.Down):
-			m.scroll++
+		case threadClaudeChoice:
+			switch msg.String() {
+			case "s":
+				// Send as-is.
+				thread := m.thread
+				repo := m.repo
+				prompt := claude.BuildPrompt(&thread, repo)
+				return root, func() tea.Msg {
+					err := claude.LaunchInNewTerminal(prompt, repo)
+					return claudeLaunchedMsg{err: err}
+				}
 
-		case key.Matches(msg, Keys.Back):
-			root.current = viewMRDetail
-			return root, root.mrDetail.loadThreads()
+			case "a":
+				// Augment in editor first.
+				thread := m.thread
+				repo := m.repo
+				prompt := claude.BuildPrompt(&thread, repo)
 
-		case key.Matches(msg, Keys.Claude):
-			m.err = "Claude integration pending"
+				tmpFile, err := claude.WritePromptToTempFile(prompt)
+				if err != nil {
+					m.err = err.Error()
+					m.state = threadViewing
+					return root, nil
+				}
+
+				editor := os.Getenv("EDITOR")
+				if editor == "" {
+					editor = "vi"
+				}
+
+				editorCmd := exec.Command(editor, tmpFile)
+				return root, tea.ExecProcess(editorCmd, func(err error) tea.Msg {
+					if err != nil {
+						_ = os.Remove(tmpFile)
+						return claudeLaunchedMsg{err: fmt.Errorf("editor: %w", err)}
+					}
+
+					// Read the edited file.
+					data, readErr := os.ReadFile(tmpFile)
+					_ = os.Remove(tmpFile)
+					if readErr != nil {
+						return claudeLaunchedMsg{err: fmt.Errorf("read edited file: %w", readErr)}
+					}
+
+					launchErr := claude.LaunchInNewTerminal(string(data), repo)
+					return claudeLaunchedMsg{err: launchErr}
+				})
+
+			case "esc":
+				m.state = threadViewing
+			}
 		}
 	}
 	return root, nil
@@ -100,7 +169,12 @@ func (m *threadModel) view(root *Model) string {
 	}
 
 	sb.WriteString("\n")
-	sb.WriteString(helpStyle.Render("j/k: scroll  c: claude  h/b: back  q: quit"))
+
+	if m.state == threadClaudeChoice {
+		sb.WriteString(helpStyle.Render("Send as-is (s) or augment in editor (a)? (esc to cancel)"))
+	} else {
+		sb.WriteString(helpStyle.Render("j/k: scroll  c: claude  h/b: back  q: quit"))
+	}
 
 	return sb.String()
 }

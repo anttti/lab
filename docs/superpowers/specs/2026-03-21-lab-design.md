@@ -93,14 +93,6 @@ PRIMARY KEY(mr_id, label)
 
 UNIQUE(mr_id, note_id)
 
-### label_filters
-
-| Column | Type    | Notes                            |
-|--------|---------|----------------------------------|
-| id     | INTEGER | PRIMARY KEY                      |
-| label  | TEXT    | UNIQUE                           |
-| active | BOOLEAN | whether this filter is currently on |
-
 ### config
 
 | Column | Type | Notes       |
@@ -108,7 +100,7 @@ UNIQUE(mr_id, note_id)
 | key    | TEXT | PRIMARY KEY |
 | value  | TEXT |             |
 
-Stores: username, sync_interval, etc.
+Stores: username, sync_interval, active_repo_filter, active_user_filter, active_label_filters (comma-separated), etc.
 
 ## Sync Engine
 
@@ -153,6 +145,18 @@ Repos sync sequentially to avoid hammering GitLab. Default interval: 5 minutes, 
 - Unresolved comment count derived from the `comments` table at render time
 - Filter toggles: repo (all / specific), user (all / just me), labels, unresolved-only
 - Only MRs with state "opened" shown by default
+
+### Filter Overlay
+
+Pressing `f` opens a filter overlay. `tab`/`shift-tab` cycles between filter groups.
+
+- **Repo:** Scrollable list with "All repos" at top, followed by all registered repos. `j`/`k` to navigate, `enter` to select, `esc` to cancel. Single-select.
+- **User:** Toggle between "All" and "Only me" with `space`. Single-select.
+- **Labels:** Multi-select list of all labels found on synced MRs (auto-populated from `mr_labels` table, no manual management). `j`/`k` to navigate, `space` to toggle. "No filter" at top. MR must have at least one selected label to be shown.
+
+`esc` from the group level closes the overlay and applies filters. Active filter state is persisted in the `config` table so it survives restarts.
+
+Status bar shows active filters: e.g. `Filters: other-repo | Only me | urgent, review-needed`
 
 ### MR Detail View
 

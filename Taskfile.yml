@@ -1,0 +1,48 @@
+version: "3"
+
+vars:
+  BINARY: lab
+
+tasks:
+  build:
+    desc: Build the binary
+    cmds:
+      - go build -o {{.BINARY}} .
+    sources:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - "{{.BINARY}}"
+
+  test:
+    desc: Run all tests
+    cmds:
+      - go test ./...
+
+  test:verbose:
+    desc: Run all tests with verbose output
+    cmds:
+      - go test -v ./...
+
+  test:race:
+    desc: Run all tests with race detector
+    cmds:
+      - go test -race ./...
+
+  lint:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - rm -f {{.BINARY}}
+
+  default:
+    desc: Build and test
+    cmds:
+      - task: lint
+      - task: test
+      - task: build

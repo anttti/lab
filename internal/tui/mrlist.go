@@ -18,8 +18,9 @@ type mrItem struct {
 
 // mrsLoadedMsg carries the result of an async MR load.
 type mrsLoadedMsg struct {
-	items []mrItem
-	err   error
+	items         []mrItem
+	activeFilters string
+	err           error
 }
 
 // mrListModel is the home screen listing all MRs.
@@ -61,7 +62,7 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 		}
 
 		if userFilter == "me" {
-			me, _ := database.GetConfig("gitlab_username")
+			me, _ := database.GetConfig("username")
 			if me != "" {
 				filter.Author = &me
 			}
@@ -111,7 +112,7 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 			parts = append(parts, "labels:"+labelFilter)
 		}
 
-		return mrsLoadedMsg{items: items}
+		return mrsLoadedMsg{items: items, activeFilters: strings.Join(parts, "  ")}
 	}
 }
 
@@ -121,6 +122,7 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 	case mrsLoadedMsg:
 		if msg.err == nil {
 			m.items = msg.items
+			m.activeFilters = msg.activeFilters
 			if m.cursor >= len(m.items) && len(m.items) > 0 {
 				m.cursor = len(m.items) - 1
 			}

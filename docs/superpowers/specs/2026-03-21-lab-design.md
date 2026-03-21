@@ -116,10 +116,12 @@ All GitLab communication uses `glab` with the `-R <gitlab_url>` flag. No need to
 
 ### Sync flow per repo
 
-1. Run `glab mr list -R <gitlab_url> --json` — upsert into `merge_requests` and `mr_labels`
-2. For each MR, run `glab mr note list <iid> -R <gitlab_url> --json` — upsert into `comments`
-3. Remove MRs/comments from the DB that no longer exist on GitLab
+1. Run `glab mr list -R <gitlab_url> --state opened --json` — upsert into `merge_requests` and `mr_labels`. Only open MRs are synced.
+2. For each MR whose `updated_at` is newer than its `synced_at` (or has never been synced), run `glab mr note list <iid> -R <gitlab_url> --json` — upsert into `comments`. This avoids re-fetching notes for unchanged MRs.
+3. Remove MRs from the DB that are no longer in the open set returned by GitLab. Remove orphaned comments accordingly.
 4. Update `repos.last_synced_at`
+
+`project_id` is parsed from the `glab mr list` JSON output on first sync after `lab add`.
 
 ### Sync modes
 
@@ -239,6 +241,12 @@ The TUI resumes immediately since Claude Code runs in a separate window.
 ### SQLite concurrency
 
 WAL mode enabled for concurrent access. The sync engine uses short write transactions (upsert a batch, commit) to avoid blocking the TUI.
+
+## Scope & Limitations
+
+- **macOS only** for now — launchd, AppleScript terminal launching, `open -a` are macOS-specific. Cross-platform support (Linux systemd, etc.) is a future consideration.
+- **Read-only interaction with GitLab** — the TUI does not reply to comments or resolve threads. It dispatches to Claude Code for fixes.
+- **TUI scrolling** handled by the bubbles list component for long MR lists.
 
 ## Error Handling
 

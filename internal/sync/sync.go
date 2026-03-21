@@ -2,9 +2,9 @@ package sync
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
-	"time"
 
 	"lab/internal/db"
 	"lab/internal/glab"
@@ -22,11 +22,17 @@ type GlabClient interface {
 type Engine struct {
 	db     *db.Database
 	client GlabClient
+	out    io.Writer
 }
 
 // New creates a new sync Engine.
 func New(database *db.Database, client GlabClient) *Engine {
-	return &Engine{db: database, client: client}
+	return &Engine{db: database, client: client, out: os.Stdout}
+}
+
+// SetOutput sets the writer used for status messages.
+func (e *Engine) SetOutput(w io.Writer) {
+	e.out = w
 }
 
 // SyncAll syncs all repos in the database.
@@ -37,6 +43,7 @@ func (e *Engine) SyncAll() error {
 	}
 	var firstErr error
 	for i := range repos {
+		fmt.Fprintf(e.out, "Syncing %s...\n", repos[i].Name)
 		if err := e.SyncRepo(&repos[i]); err != nil {
 			log.Printf("sync repo %q: %v", repos[i].Path, err)
 			if firstErr == nil {
@@ -70,21 +77,10 @@ func (e *Engine) SyncRepo(repo *db.Repo) error {
 
 	keepIIDs := make([]int, 0, len(glabMRs))
 
-	for _, glabMR := range glabMRs {
+	for i, glabMR := range glabMRs {
 		keepIIDs = append(keepIIDs, glabMR.IID)
 
-		// Capture the pre-upsert synced_at so we can decide whether discussions
-		// need refreshing. We look up by (repo_id, iid) before mutating the row.
-		var preSyncedAt *time.Time
-		{
-			existing, _ := e.db.ListMRs(db.MRFilter{RepoID: &repo.ID})
-			for i := range existing {
-				if existing[i].IID == glabMR.IID {
-					preSyncedAt = existing[i].SyncedAt
-					break
-				}
-			}
-		}
+		fmt.Fprintf(e.out, "  MR !%d (%d/%d): %s\n", glabMR.IID, i+1, len(glabMRs), glabMR.Title)
 
 		// Fetch pipeline status separately so we always have the freshest value.
 		pipelineStatus, err := e.client.GetMRPipeline(repo.GitLabURL, repo.ProjectID, glabMR.IID)
@@ -118,12 +114,8 @@ func (e *Engine) SyncRepo(repo *db.Repo) error {
 			return fmt.Errorf("SyncRepo set labels for MR !%d: %w", glabMR.IID, err)
 		}
 
-		// Only sync discussions if the MR has been updated since the last sync.
-		// Use the pre-upsert synced_at value so we are not comparing against "now".
-		if preSyncedAt == nil || glabMR.UpdatedAt.After(*preSyncedAt) {
-			if err := e.syncDiscussions(repo, mr, glabMR.IID); err != nil {
-				log.Printf("SyncRepo sync discussions for MR !%d: %v", glabMR.IID, err)
-			}
+		if err := e.syncDiscussions(repo, mr, glabMR.IID); err != nil {
+			log.Printf("SyncRepo sync discussions for MR !%d: %v", glabMR.IID, err)
 		}
 	}
 

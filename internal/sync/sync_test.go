@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"io"
 	"os"
 	"testing"
 	"time"
@@ -8,6 +9,13 @@ import (
 	"lab/internal/db"
 	"lab/internal/glab"
 )
+
+// newTestEngine creates a sync Engine with output silenced for tests.
+func newTestEngine(database *db.Database, mock GlabClient) *Engine {
+	e := New(database, mock)
+	e.SetOutput(io.Discard)
+	return e
+}
 
 // mockGlab implements GlabClient for testing.
 type mockGlab struct {
@@ -108,7 +116,7 @@ func TestSyncRepo_CreatesMRs(t *testing.T) {
 		pipelines: map[int]string{1: "success"},
 	}
 
-	engine := New(database, mock)
+	engine := newTestEngine(database, mock)
 	if err := engine.SyncRepo(repo); err != nil {
 		t.Fatalf("SyncRepo: %v", err)
 	}
@@ -200,7 +208,7 @@ func TestSyncRepo_DeletesStaleMRs(t *testing.T) {
 		pipelines:   map[int]string{},
 	}
 
-	engine := New(database, mock)
+	engine := newTestEngine(database, mock)
 
 	// First sync: both MRs present.
 	if err := engine.SyncRepo(repo); err != nil {
@@ -248,7 +256,7 @@ func TestSyncRepo_SkipsMissingPath(t *testing.T) {
 		pipelines:   map[int]string{},
 	}
 
-	engine := New(database, mock)
+	engine := newTestEngine(database, mock)
 	if err := engine.SyncRepo(repo); err != nil {
 		t.Errorf("SyncRepo with missing path should not error, got: %v", err)
 	}
@@ -296,7 +304,7 @@ func TestSyncRepo_SystemNotesFiltered(t *testing.T) {
 		pipelines: map[int]string{},
 	}
 
-	engine := New(database, mock)
+	engine := newTestEngine(database, mock)
 	if err := engine.SyncRepo(repo); err != nil {
 		t.Fatalf("SyncRepo: %v", err)
 	}

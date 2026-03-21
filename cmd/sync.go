@@ -33,7 +33,6 @@ var syncCmd = &cobra.Command{
 		engine := sync.New(database, client)
 
 		runSync := func() error {
-			fmt.Println("Syncing...")
 			if err := engine.SyncAll(); err != nil {
 				return fmt.Errorf("sync: %w", err)
 			}

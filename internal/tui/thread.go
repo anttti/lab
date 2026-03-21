@@ -158,7 +158,7 @@ func (m *threadModel) view(root *Model) string {
 	}
 
 	// Render each comment, applying scroll offset.
-	lines := buildThreadLines(m.thread)
+	lines := buildThreadLines(m.thread, root.width)
 	start := m.scroll
 	if start > len(lines) {
 		start = len(lines)
@@ -180,19 +180,52 @@ func (m *threadModel) view(root *Model) string {
 }
 
 // buildThreadLines converts thread comments into display lines.
-func buildThreadLines(thread db.Thread) []string {
+func buildThreadLines(thread db.Thread, width int) []string {
+	// Body is indented by 2, so wrap width accounts for that.
+	wrapWidth := width - 2
+	if wrapWidth < 40 {
+		wrapWidth = 40
+	}
+
 	var lines []string
 	for _, c := range thread.Comments {
 		// Header: @author (age)
 		header := selectedStyle.Render("@"+c.Author) + " " + dimStyle.Render("("+timeAgo(c.CreatedAt)+")")
 		lines = append(lines, header)
 
-		// Body, indented.
+		// Body, indented and word-wrapped.
 		for _, bodyLine := range strings.Split(c.Body, "\n") {
-			lines = append(lines, "  "+bodyLine)
+			for _, wrapped := range wordWrap(bodyLine, wrapWidth) {
+				lines = append(lines, "  "+wrapped)
+			}
 		}
 		lines = append(lines, "")
 	}
+	return lines
+}
+
+// wordWrap breaks a line into multiple lines at word boundaries to fit within maxWidth.
+func wordWrap(s string, maxWidth int) []string {
+	if len([]rune(s)) <= maxWidth {
+		return []string{s}
+	}
+
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return []string{""}
+	}
+
+	var lines []string
+	current := words[0]
+	for _, w := range words[1:] {
+		if len([]rune(current))+1+len([]rune(w)) > maxWidth {
+			lines = append(lines, current)
+			current = w
+		} else {
+			current += " " + w
+		}
+	}
+	lines = append(lines, current)
 	return lines
 }
 

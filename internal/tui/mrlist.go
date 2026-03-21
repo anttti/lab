@@ -193,6 +193,13 @@ func (m *mrListModel) view(root *Model) string {
 		sb.WriteString(dimStyle.Render("No merge requests found."))
 		sb.WriteString("\n")
 	} else {
+		// Calculate dynamic title column width based on terminal width.
+		// Fixed columns: cursor(2) + repo(12) + " !"(2) + IID(4) + " "(1) + " @"(2) + author(15) + suffix(6) = 44
+		titleWidth := root.width - 44
+		if titleWidth < 20 {
+			titleWidth = 20
+		}
+
 		for i, item := range m.items {
 			cursor := "  "
 			if i == m.cursor {
@@ -200,10 +207,11 @@ func (m *mrListModel) view(root *Model) string {
 			}
 
 			// Build the row text.
-			title := truncate(item.mr.Title, 30)
-			row := fmt.Sprintf("%-12s !%-4d %-32s @%-15s",
+			title := truncate(item.mr.Title, titleWidth)
+			row := fmt.Sprintf("%-12s !%-4d %-*s @%-15s",
 				truncate(item.repoName, 12),
 				item.mr.IID,
+				titleWidth,
 				title,
 				truncate(item.mr.Author, 15),
 			)

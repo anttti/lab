@@ -150,7 +150,9 @@ func (m *filterModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, Keys.Quit):
-			return root, tea.Quit
+			_ = m.saveFilters()
+			root.current = viewMRList
+			return root, root.mrList.loadMRs()
 
 		case msg.String() == "tab":
 			m.group = (m.group + 1) % 3

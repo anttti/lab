@@ -144,10 +144,11 @@ Repos sync sequentially to avoid hammering GitLab. Default interval: 5 minutes, 
 │  ● other-repo !15  Add logging         @bob    5↩ ⟳ │
 │  ● other-repo !12  Refactor parser     @me     0↩ ✓ │
 │                                                     │
-│ ↑↓ navigate  enter select  f filter  q quit         │
+│ j/k navigate  enter/l select  f filter  q quit      │
 └─────────────────────────────────────────────────────┘
 ```
 
+- **Vim-style keybindings** throughout: `j`/`k` up/down, `l`/`enter` select/drill in, `h`/`b` back, `g`/`G` top/bottom. Arrow keys also work as fallback.
 - Pipeline status: `✓` passed, `✗` failed, `⟳` running, `—` no pipeline
 - Unresolved comment count derived from the `comments` table at render time
 - Filter toggles: repo (all / specific), user (all / just me), labels, unresolved-only

@@ -120,8 +120,7 @@ func (m *mrDetailModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, Keys.Select):
 			if len(m.threads) > 0 {
-				thread := m.threads[m.cursor]
-				tv := newThreadModel(root, thread, m.mr, m.repoName)
+				tv := newThreadModel(root, m.threads, m.cursor, m.mr, m.repoName)
 				root.thread = tv
 				root.current = viewThread
 			}

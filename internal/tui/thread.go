@@ -25,22 +25,26 @@ type claudeLaunchedMsg struct{ err error }
 
 // threadModel shows the full content of a single thread.
 type threadModel struct {
-	db     *db.Database
-	thread db.Thread
-	mr     db.MergeRequest
-	repo   string
-	scroll int
-	state  threadState
-	err    string
+	db      *db.Database
+	threads []db.Thread
+	index   int
+	thread  db.Thread
+	mr      db.MergeRequest
+	repo    string
+	scroll  int
+	state   threadState
+	err     string
 }
 
-func newThreadModel(root *Model, thread db.Thread, mr db.MergeRequest, repo string) threadModel {
+func newThreadModel(root *Model, threads []db.Thread, index int, mr db.MergeRequest, repo string) threadModel {
 	return threadModel{
-		db:     root.db,
-		thread: thread,
-		mr:     mr,
-		repo:   repo,
-		state:  threadViewing,
+		db:      root.db,
+		threads: threads,
+		index:   index,
+		thread:  threads[index],
+		mr:      mr,
+		repo:    repo,
+		state:   threadViewing,
 	}
 }
 
@@ -71,6 +75,20 @@ func (m *threadModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, Keys.Back):
 				root.current = viewMRDetail
 				return root, root.mrDetail.loadThreads()
+
+			case key.Matches(msg, Keys.Next):
+				if m.index < len(m.threads)-1 {
+					m.index++
+					m.thread = m.threads[m.index]
+					m.scroll = 0
+				}
+
+			case key.Matches(msg, Keys.Prev):
+				if m.index > 0 {
+					m.index--
+					m.thread = m.threads[m.index]
+					m.scroll = 0
+				}
 
 			case key.Matches(msg, Keys.Claude):
 				m.state = threadClaudeChoice
@@ -148,7 +166,7 @@ func (m *threadModel) view(root *Model) string {
 		}
 	}
 
-	header := fmt.Sprintf("Thread — %s  (MR !%d: %s)", location, m.mr.IID, truncate(m.mr.Title, 40))
+	header := fmt.Sprintf("Thread %d/%d — %s  (MR !%d: %s)", m.index+1, len(m.threads), location, m.mr.IID, truncate(m.mr.Title, 40))
 	sb.WriteString(titleStyle.Render(header))
 	sb.WriteString("\n\n")
 
@@ -173,7 +191,7 @@ func (m *threadModel) view(root *Model) string {
 	if m.state == threadClaudeChoice {
 		sb.WriteString(helpStyle.Render("Send as-is (s) or augment in editor (a)? (esc to cancel)"))
 	} else {
-		sb.WriteString(helpStyle.Render("j/k: scroll  c: claude  h/b: back  q: quit"))
+		sb.WriteString(helpStyle.Render("j/k: scroll  n/p: next/prev thread  c: claude  h/b: back  q: quit"))
 	}
 
 	return sb.String()

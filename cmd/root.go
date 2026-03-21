@@ -2,11 +2,13 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/anttimattila/lab/internal/db"
+	"github.com/anttimattila/lab/internal/glab"
+	gosync "github.com/anttimattila/lab/internal/sync"
+	"github.com/anttimattila/lab/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -14,8 +16,17 @@ var rootCmd = &cobra.Command{
 	Use:   "lab",
 	Short: "GitLab merge request TUI",
 	Long:  "A TUI for managing GitLab merge requests and dispatching comments to Claude Code.",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("TUI not yet implemented")
+	RunE: func(cmd *cobra.Command, args []string) error {
+		database, err := openDB()
+		if err != nil {
+			return err
+		}
+		defer database.Close()
+
+		client := glab.New()
+		engine := gosync.New(database, client)
+
+		return tui.Run(database, engine)
 	},
 }
 

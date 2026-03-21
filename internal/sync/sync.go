@@ -5,10 +5,13 @@ import (
 	"io"
 	"log"
 	"os"
+	"sync"
 
 	"lab/internal/db"
 	"lab/internal/glab"
 )
+
+const maxConcurrency = 4
 
 // GlabClient is the interface the Engine uses to talk to GitLab via glab.
 // glab.Client satisfies this interface via Go structural typing.
@@ -75,57 +78,88 @@ func (e *Engine) SyncRepo(repo *db.Repo) error {
 		}
 	}
 
-	keepIIDs := make([]int, 0, len(glabMRs))
-
+	keepIIDs := make([]int, len(glabMRs))
 	for i, glabMR := range glabMRs {
-		keepIIDs = append(keepIIDs, glabMR.IID)
-
-		fmt.Fprintf(e.out, "  MR !%d (%d/%d): %s\n", glabMR.IID, i+1, len(glabMRs), glabMR.Title)
-
-		// Fetch pipeline status separately so we always have the freshest value.
-		pipelineStatus, err := e.client.GetMRPipeline(repo.GitLabURL, repo.ProjectID, glabMR.IID)
-		if err != nil {
-			log.Printf("SyncRepo get pipeline for MR !%d: %v", glabMR.IID, err)
-		}
-
-		var ps *string
-		if pipelineStatus != "" {
-			ps = &pipelineStatus
-		}
-
-		mr := &db.MergeRequest{
-			RepoID:         repo.ID,
-			IID:            glabMR.IID,
-			Title:          glabMR.Title,
-			Author:         glabMR.Author.Username,
-			State:          glabMR.State,
-			SourceBranch:   glabMR.SourceBranch,
-			TargetBranch:   glabMR.TargetBranch,
-			WebURL:         glabMR.WebURL,
-			PipelineStatus: ps,
-			UpdatedAt:      glabMR.UpdatedAt,
-		}
-
-		if err := e.db.UpsertMR(mr); err != nil {
-			return fmt.Errorf("SyncRepo upsert MR !%d: %w", glabMR.IID, err)
-		}
-
-		if err := e.db.SetMRLabels(mr.ID, glabMR.Labels); err != nil {
-			return fmt.Errorf("SyncRepo set labels for MR !%d: %w", glabMR.IID, err)
-		}
-
-		if err := e.syncDiscussions(repo, mr, glabMR.IID); err != nil {
-			log.Printf("SyncRepo sync discussions for MR !%d: %v", glabMR.IID, err)
-		}
+		keepIIDs[i] = glabMR.IID
 	}
 
-	// Delete MRs that are no longer returned by glab.
+	// Delete stale MRs before upserting so we don't conflict.
 	if err := e.db.DeleteStaleMRs(repo.ID, keepIIDs); err != nil {
 		return fmt.Errorf("SyncRepo delete stale MRs: %w", err)
 	}
 
+	// Sync MRs concurrently with a bounded worker pool.
+	sem := make(chan struct{}, maxConcurrency)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var firstErr error
+
+	for i, glabMR := range glabMRs {
+		wg.Add(1)
+		go func(idx int, glabMR glab.MRListItem) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			fmt.Fprintf(e.out, "  MR !%d (%d/%d): %s\n", glabMR.IID, idx+1, len(glabMRs), glabMR.Title)
+
+			if err := e.syncMRItem(repo, glabMR); err != nil {
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = err
+				}
+				mu.Unlock()
+			}
+		}(i, glabMR)
+	}
+	wg.Wait()
+
+	if firstErr != nil {
+		return firstErr
+	}
+
 	if err := e.db.UpdateRepoSyncTime(repo.ID); err != nil {
 		return fmt.Errorf("SyncRepo update sync time: %w", err)
+	}
+
+	return nil
+}
+
+// syncMRItem fetches pipeline/discussions and upserts a single MR into the DB.
+func (e *Engine) syncMRItem(repo *db.Repo, glabMR glab.MRListItem) error {
+	pipelineStatus, err := e.client.GetMRPipeline(repo.GitLabURL, repo.ProjectID, glabMR.IID)
+	if err != nil {
+		log.Printf("SyncRepo get pipeline for MR !%d: %v", glabMR.IID, err)
+	}
+
+	var ps *string
+	if pipelineStatus != "" {
+		ps = &pipelineStatus
+	}
+
+	mr := &db.MergeRequest{
+		RepoID:         repo.ID,
+		IID:            glabMR.IID,
+		Title:          glabMR.Title,
+		Author:         glabMR.Author.Username,
+		State:          glabMR.State,
+		SourceBranch:   glabMR.SourceBranch,
+		TargetBranch:   glabMR.TargetBranch,
+		WebURL:         glabMR.WebURL,
+		PipelineStatus: ps,
+		UpdatedAt:      glabMR.UpdatedAt,
+	}
+
+	if err := e.db.UpsertMR(mr); err != nil {
+		return fmt.Errorf("SyncRepo upsert MR !%d: %w", glabMR.IID, err)
+	}
+
+	if err := e.db.SetMRLabels(mr.ID, glabMR.Labels); err != nil {
+		return fmt.Errorf("SyncRepo set labels for MR !%d: %w", glabMR.IID, err)
+	}
+
+	if err := e.syncDiscussions(repo, mr, glabMR.IID); err != nil {
+		log.Printf("SyncRepo sync discussions for MR !%d: %v", glabMR.IID, err)
 	}
 
 	return nil

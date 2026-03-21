@@ -172,13 +172,14 @@ Status bar shows active filters: e.g. `Filters: other-repo | Only me | urgent, r
 │ ▸ General: (1 note, resolved)                       │
 │   "LGTM on the overall approach"                    │
 │                                                     │
-│ ↑↓ navigate  enter view thread  b back              │
+│ ↑↓ navigate  enter view thread  r sync  b back      │
 └─────────────────────────────────────────────────────┘
 ```
 
 - Comments grouped by discussion thread
 - Shows file path, line number, resolved status, first line of comment
 - Unresolved threads shown first
+- Pressing `r` triggers a sync for this specific MR (re-fetches notes via `glab`), with a spinner while syncing
 
 ### Thread View
 

@@ -23,6 +23,17 @@ const (
 // claudeLaunchedMsg is sent after attempting to launch Claude.
 type claudeLaunchedMsg struct{ err error }
 
+// threadMarkedReadMsg is sent after marking a thread as read (no-op handler).
+type threadMarkedReadMsg struct{}
+
+// markThreadReadCmd returns a command that marks a thread as read in the DB.
+func markThreadReadCmd(database *db.Database, mrID int64, discussionID string) tea.Cmd {
+	return func() tea.Msg {
+		_ = database.MarkThreadRead(mrID, discussionID)
+		return threadMarkedReadMsg{}
+	}
+}
+
 // threadModel shows the full content of a single thread.
 type threadModel struct {
 	db      *db.Database
@@ -36,8 +47,8 @@ type threadModel struct {
 	err     string
 }
 
-func newThreadModel(root *Model, threads []db.Thread, index int, mr db.MergeRequest, repo string) threadModel {
-	return threadModel{
+func newThreadModel(root *Model, threads []db.Thread, index int, mr db.MergeRequest, repo string) (threadModel, tea.Cmd) {
+	m := threadModel{
 		db:      root.db,
 		threads: threads,
 		index:   index,
@@ -46,6 +57,7 @@ func newThreadModel(root *Model, threads []db.Thread, index int, mr db.MergeRequ
 		repo:    repo,
 		state:   threadViewing,
 	}
+	return m, markThreadReadCmd(root.db, mr.ID, threads[index].DiscussionID)
 }
 
 // update handles input for the thread view.
@@ -61,8 +73,9 @@ func (m *threadModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 		switch m.state {
 		case threadViewing:
 			switch {
-			case key.Matches(msg, Keys.Quit):
-				return root, tea.Quit
+			case key.Matches(msg, Keys.Quit), key.Matches(msg, Keys.Back):
+				root.current = viewMRDetail
+				return root, root.mrDetail.loadThreads()
 
 			case key.Matches(msg, Keys.Up):
 				if m.scroll > 0 {
@@ -72,15 +85,12 @@ func (m *threadModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, Keys.Down):
 				m.scroll++
 
-			case key.Matches(msg, Keys.Back):
-				root.current = viewMRDetail
-				return root, root.mrDetail.loadThreads()
-
 			case key.Matches(msg, Keys.Next):
 				if m.index < len(m.threads)-1 {
 					m.index++
 					m.thread = m.threads[m.index]
 					m.scroll = 0
+					return root, markThreadReadCmd(m.db, m.mr.ID, m.thread.DiscussionID)
 				}
 
 			case key.Matches(msg, Keys.Prev):
@@ -88,6 +98,7 @@ func (m *threadModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 					m.index--
 					m.thread = m.threads[m.index]
 					m.scroll = 0
+					return root, markThreadReadCmd(m.db, m.mr.ID, m.thread.DiscussionID)
 				}
 
 			case key.Matches(msg, Keys.Claude):

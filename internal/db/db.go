@@ -99,6 +99,13 @@ CREATE TABLE IF NOT EXISTS config (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL DEFAULT ''
 );
+
+CREATE TABLE IF NOT EXISTS thread_reads (
+    mr_id         INTEGER NOT NULL REFERENCES merge_requests(id) ON DELETE CASCADE,
+    discussion_id TEXT NOT NULL,
+    read_at       DATETIME NOT NULL,
+    PRIMARY KEY (mr_id, discussion_id)
+);
 `
 	_, err := db.Exec(schema)
 	return err

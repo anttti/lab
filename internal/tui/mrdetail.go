@@ -97,8 +97,9 @@ func (m *mrDetailModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch {
-		case key.Matches(msg, Keys.Quit):
-			return root, tea.Quit
+		case key.Matches(msg, Keys.Quit), key.Matches(msg, Keys.Back):
+			root.current = viewMRList
+			return root, root.mrList.loadMRs()
 
 		case key.Matches(msg, Keys.Up):
 			if m.cursor > 0 {
@@ -120,9 +121,10 @@ func (m *mrDetailModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, Keys.Select):
 			if len(m.threads) > 0 {
-				tv := newThreadModel(root, m.threads, m.cursor, m.mr, m.repoName)
+				tv, cmd := newThreadModel(root, m.threads, m.cursor, m.mr, m.repoName)
 				root.thread = tv
 				root.current = viewThread
+				return root, cmd
 			}
 
 		case key.Matches(msg, Keys.Sync):
@@ -131,9 +133,6 @@ func (m *mrDetailModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 				return root, m.syncMR()
 			}
 
-		case key.Matches(msg, Keys.Back):
-			root.current = viewMRList
-			return root, root.mrList.loadMRs()
 		}
 	}
 	return root, nil
@@ -184,16 +183,23 @@ func (m *mrDetailModel) view(root *Model) string {
 				resolvedLabel = unresolvedStyle.Render(" !")
 			}
 
+			// Unread indicator.
+			var unreadLabel string
+			if thread.Unread {
+				unreadLabel = unreadStyle.Render(" ●")
+			}
+
 			// First comment preview.
 			preview := ""
 			if len(thread.Comments) > 0 {
 				preview = truncate(thread.Comments[0].Body, 50)
 			}
 
-			row := fmt.Sprintf("%-30s  %d notes%s  %s",
+			row := fmt.Sprintf("%-30s  %d notes%s%s  %s",
 				truncate(location, 30),
 				noteCount,
 				resolvedLabel,
+				unreadLabel,
 				dimStyle.Render(preview),
 			)
 

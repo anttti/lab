@@ -29,6 +29,7 @@ type Thread struct {
 	OldLine      *int
 	NewLine      *int
 	Resolved     bool
+	Unread       bool
 	Comments     []Comment
 }
 
@@ -69,9 +70,15 @@ func (db *Database) ListComments(mrID int64) ([]Comment, error) {
 }
 
 // ListThreads groups comments for the given MR into Thread structs, preserving
-// insertion order of the first comment in each discussion.
+// insertion order of the first comment in each discussion. Each thread's Unread
+// field is populated based on whether it has comments newer than the last read time.
 func (db *Database) ListThreads(mrID int64) ([]Thread, error) {
 	comments, err := db.ListComments(mrID)
+	if err != nil {
+		return nil, err
+	}
+
+	unreadStatus, err := db.ThreadUnreadStatus(mrID)
 	if err != nil {
 		return nil, err
 	}
@@ -89,6 +96,7 @@ func (db *Database) ListThreads(mrID int64) ([]Thread, error) {
 				OldLine:      c.OldLine,
 				NewLine:      c.NewLine,
 				Resolved:     c.Resolved,
+				Unread:       unreadStatus[c.DiscussionID],
 			}
 			threads = append(threads, th)
 			idx = len(threads) - 1
@@ -98,6 +106,66 @@ func (db *Database) ListThreads(mrID int64) ([]Thread, error) {
 	}
 
 	return threads, nil
+}
+
+// MarkThreadRead upserts thread_reads so the thread is considered read up to
+// the newest comment currently in the database.
+func (db *Database) MarkThreadRead(mrID int64, discussionID string) error {
+	const q = `
+INSERT INTO thread_reads (mr_id, discussion_id, read_at)
+VALUES (?, ?, (SELECT COALESCE(MAX(created_at), datetime('now')) FROM comments WHERE mr_id = ? AND discussion_id = ?))
+ON CONFLICT(mr_id, discussion_id) DO UPDATE SET
+    read_at = excluded.read_at`
+	_, err := db.Exec(q, mrID, discussionID, mrID, discussionID)
+	if err != nil {
+		return fmt.Errorf("MarkThreadRead: %w", err)
+	}
+	return nil
+}
+
+// UnreadThreadCount returns the number of threads in an MR that have unread comments.
+func (db *Database) UnreadThreadCount(mrID int64) (int, error) {
+	const q = `
+SELECT COUNT(DISTINCT c.discussion_id)
+FROM comments c
+LEFT JOIN thread_reads tr ON tr.mr_id = c.mr_id AND tr.discussion_id = c.discussion_id
+WHERE c.mr_id = ?
+  AND (tr.read_at IS NULL OR c.created_at > tr.read_at)`
+	var n int
+	if err := db.QueryRow(q, mrID).Scan(&n); err != nil {
+		return 0, fmt.Errorf("UnreadThreadCount: %w", err)
+	}
+	return n, nil
+}
+
+// ThreadUnreadStatus returns a map of discussion_id → is_unread for all threads
+// in the given MR. A thread is unread if it has any comment with created_at after
+// the recorded read_at, or if no read record exists.
+func (db *Database) ThreadUnreadStatus(mrID int64) (map[string]bool, error) {
+	const q = `
+SELECT c.discussion_id,
+       MAX(CASE WHEN tr.read_at IS NULL OR c.created_at > tr.read_at THEN 1 ELSE 0 END) AS unread
+FROM comments c
+LEFT JOIN thread_reads tr ON tr.mr_id = c.mr_id AND tr.discussion_id = c.discussion_id
+WHERE c.mr_id = ?
+GROUP BY c.discussion_id`
+
+	rows, err := db.Query(q, mrID)
+	if err != nil {
+		return nil, fmt.Errorf("ThreadUnreadStatus: %w", err)
+	}
+	defer rows.Close()
+
+	status := make(map[string]bool)
+	for rows.Next() {
+		var discID string
+		var unread int
+		if err := rows.Scan(&discID, &unread); err != nil {
+			return nil, fmt.Errorf("ThreadUnreadStatus scan: %w", err)
+		}
+		status[discID] = unread == 1
+	}
+	return status, rows.Err()
 }
 
 // UnresolvedCommentCount returns the number of unresolved comments for an MR.

@@ -36,4 +36,7 @@ var (
 
 	resolvedStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("42"))
+
+	unreadStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("39"))
 )

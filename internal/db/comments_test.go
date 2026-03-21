@@ -106,6 +106,139 @@ func TestUnresolvedCount(t *testing.T) {
 	}
 }
 
+func TestMarkThreadRead(t *testing.T) {
+	db := testDB(t)
+	mr := insertTestMR(t, db)
+
+	c := baseComment(mr.ID, 1, "disc-1")
+	_ = db.UpsertComment(c)
+
+	// Before marking: thread should be unread.
+	n, err := db.UnreadThreadCount(mr.ID)
+	if err != nil {
+		t.Fatalf("UnreadThreadCount: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 unread thread before mark, got %d", n)
+	}
+
+	// Mark as read.
+	if err := db.MarkThreadRead(mr.ID, "disc-1"); err != nil {
+		t.Fatalf("MarkThreadRead: %v", err)
+	}
+
+	// After marking: thread should be read.
+	n, err = db.UnreadThreadCount(mr.ID)
+	if err != nil {
+		t.Fatalf("UnreadThreadCount: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("expected 0 unread threads after mark, got %d", n)
+	}
+}
+
+func TestMarkThreadRead_NewCommentMakesUnread(t *testing.T) {
+	db := testDB(t)
+	mr := insertTestMR(t, db)
+
+	c1 := baseComment(mr.ID, 1, "disc-1")
+	c1.CreatedAt = time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	_ = db.UpsertComment(c1)
+
+	// Mark as read.
+	_ = db.MarkThreadRead(mr.ID, "disc-1")
+
+	// Add a newer comment to the same thread.
+	c2 := baseComment(mr.ID, 2, "disc-1")
+	c2.CreatedAt = time.Now().UTC().Truncate(time.Second)
+	_ = db.UpsertComment(c2)
+
+	// Thread should be unread again.
+	n, err := db.UnreadThreadCount(mr.ID)
+	if err != nil {
+		t.Fatalf("UnreadThreadCount: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 unread thread after new comment, got %d", n)
+	}
+}
+
+func TestThreadUnreadStatus(t *testing.T) {
+	db := testDB(t)
+	mr := insertTestMR(t, db)
+
+	_ = db.UpsertComment(baseComment(mr.ID, 1, "disc-A"))
+	_ = db.UpsertComment(baseComment(mr.ID, 2, "disc-B"))
+
+	// Mark only disc-A as read.
+	_ = db.MarkThreadRead(mr.ID, "disc-A")
+
+	status, err := db.ThreadUnreadStatus(mr.ID)
+	if err != nil {
+		t.Fatalf("ThreadUnreadStatus: %v", err)
+	}
+	if status["disc-A"] {
+		t.Error("disc-A should be read after MarkThreadRead")
+	}
+	if !status["disc-B"] {
+		t.Error("disc-B should be unread (never marked)")
+	}
+}
+
+func TestListThreads_PopulatesUnread(t *testing.T) {
+	db := testDB(t)
+	mr := insertTestMR(t, db)
+
+	_ = db.UpsertComment(baseComment(mr.ID, 1, "disc-A"))
+	_ = db.UpsertComment(baseComment(mr.ID, 2, "disc-B"))
+
+	// Mark disc-A as read.
+	_ = db.MarkThreadRead(mr.ID, "disc-A")
+
+	threads, err := db.ListThreads(mr.ID)
+	if err != nil {
+		t.Fatalf("ListThreads: %v", err)
+	}
+	if len(threads) != 2 {
+		t.Fatalf("expected 2 threads, got %d", len(threads))
+	}
+
+	for _, th := range threads {
+		switch th.DiscussionID {
+		case "disc-A":
+			if th.Unread {
+				t.Error("disc-A should not be unread")
+			}
+		case "disc-B":
+			if !th.Unread {
+				t.Error("disc-B should be unread")
+			}
+		}
+	}
+}
+
+func TestUnreadThreadCount_MultipleThreads(t *testing.T) {
+	db := testDB(t)
+	mr := insertTestMR(t, db)
+
+	_ = db.UpsertComment(baseComment(mr.ID, 1, "disc-A"))
+	_ = db.UpsertComment(baseComment(mr.ID, 2, "disc-B"))
+	_ = db.UpsertComment(baseComment(mr.ID, 3, "disc-C"))
+
+	n, _ := db.UnreadThreadCount(mr.ID)
+	if n != 3 {
+		t.Errorf("expected 3 unread threads, got %d", n)
+	}
+
+	_ = db.MarkThreadRead(mr.ID, "disc-A")
+	_ = db.MarkThreadRead(mr.ID, "disc-C")
+
+	n, _ = db.UnreadThreadCount(mr.ID)
+	if n != 1 {
+		t.Errorf("expected 1 unread thread after marking 2, got %d", n)
+	}
+}
+
 func TestDeleteStaleComments(t *testing.T) {
 	db := testDB(t)
 	mr := insertTestMR(t, db)

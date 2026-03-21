@@ -14,6 +14,7 @@ type mrItem struct {
 	mr              db.MergeRequest
 	repoName        string
 	unresolvedCount int
+	unreadCount     int
 }
 
 // mrsLoadedMsg carries the result of an async MR load.
@@ -93,10 +94,12 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 		items := make([]mrItem, 0, len(mrs))
 		for _, mr := range mrs {
 			unresolved, _ := database.UnresolvedCommentCount(mr.ID)
+			unread, _ := database.UnreadThreadCount(mr.ID)
 			items = append(items, mrItem{
 				mr:              mr,
 				repoName:        repoNames[mr.RepoID],
 				unresolvedCount: unresolved,
+				unreadCount:     unread,
 			})
 		}
 
@@ -215,6 +218,11 @@ func (m *mrListModel) view(root *Model) string {
 				title,
 				truncate(item.mr.Author, 15),
 			)
+
+			// Unread indicator.
+			if item.unreadCount > 0 {
+				row += " " + unreadStyle.Render("●")
+			}
 
 			// Unresolved count.
 			if item.unresolvedCount > 0 {

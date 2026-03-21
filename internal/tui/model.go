@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"time"
+
 	"github.com/anttimattila/lab/internal/db"
 	gosync "github.com/anttimattila/lab/internal/sync"
 	tea "github.com/charmbracelet/bubbletea"
@@ -15,6 +17,12 @@ const (
 	viewThread
 	viewFilter
 )
+
+// syncTickMsg is sent on a repeating timer to trigger background sync.
+type syncTickMsg struct{}
+
+// bgSyncDoneMsg is sent when the background sync has finished.
+type bgSyncDoneMsg struct{}
 
 // Model is the root TUI model. It routes messages and rendering to the
 // currently active sub-model.
@@ -40,9 +48,16 @@ func NewModel(database *db.Database, engine *gosync.Engine) *Model {
 	return m
 }
 
-// Init starts the initial data load.
+// syncTick returns a command that fires a syncTickMsg after 5 minutes.
+func syncTick() tea.Cmd {
+	return tea.Tick(5*time.Minute, func(time.Time) tea.Msg {
+		return syncTickMsg{}
+	})
+}
+
+// Init starts the initial data load and the background sync ticker.
 func (m *Model) Init() tea.Cmd {
-	return m.mrList.loadMRs()
+	return tea.Batch(m.mrList.loadMRs(), syncTick())
 }
 
 // Update routes messages to the currently active sub-model.
@@ -51,6 +66,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		return m, nil
+
+	case syncTickMsg:
+		return m, tea.Batch(
+			func() tea.Msg {
+				m.sync.SyncAll()
+				return bgSyncDoneMsg{}
+			},
+			syncTick(),
+		)
+
+	case bgSyncDoneMsg:
+		if m.current == viewMRList {
+			return m, m.mrList.loadMRs()
+		}
 		return m, nil
 	}
 

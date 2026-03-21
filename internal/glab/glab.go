@@ -2,6 +2,7 @@ package glab
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -20,9 +21,10 @@ func (c *Client) CheckInstalled() error {
 }
 
 func (c *Client) ListMRs(repoURL string) ([]MRListItem, error) {
-	out, err := exec.Command("glab", "mr", "list", "-R", repoURL, "-F", "json", "--per-page", "100").Output()
+	cmd := exec.Command("glab", "mr", "list", "-R", repoURL, "-F", "json", "--per-page", "100")
+	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("glab mr list: %w", err)
+		return nil, fmt.Errorf("glab mr list: %s", cmdError(err))
 	}
 	var mrs []MRListItem
 	if err := json.Unmarshal(out, &mrs); err != nil {
@@ -35,7 +37,7 @@ func (c *Client) ListDiscussions(repoURL string, projectID int64, mrIID int) ([]
 	endpoint := fmt.Sprintf("projects/%d/merge_requests/%d/discussions?per_page=100", projectID, mrIID)
 	out, err := exec.Command("glab", "api", endpoint, "-R", repoURL).Output()
 	if err != nil {
-		return nil, fmt.Errorf("glab api discussions: %w", err)
+		return nil, fmt.Errorf("glab api discussions: %s", cmdError(err))
 	}
 	var discussions []Discussion
 	if err := json.Unmarshal(out, &discussions); err != nil {
@@ -48,7 +50,7 @@ func (c *Client) GetMRPipeline(repoURL string, projectID int64, mrIID int) (stri
 	endpoint := fmt.Sprintf("projects/%d/merge_requests/%d", projectID, mrIID)
 	out, err := exec.Command("glab", "api", endpoint, "-R", repoURL).Output()
 	if err != nil {
-		return "", fmt.Errorf("glab api MR detail: %w", err)
+		return "", fmt.Errorf("glab api MR detail: %s", cmdError(err))
 	}
 	var detail struct {
 		HeadPipeline *Pipeline `json:"head_pipeline"`
@@ -62,10 +64,21 @@ func (c *Client) GetMRPipeline(repoURL string, projectID int64, mrIID int) (stri
 	return detail.HeadPipeline.Status, nil
 }
 
+// cmdError extracts stderr from an exec.ExitError, falling back to err.Error().
+func cmdError(err error) string {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		if stderr := strings.TrimSpace(string(exitErr.Stderr)); stderr != "" {
+			return stderr
+		}
+	}
+	return err.Error()
+}
+
 func (c *Client) GetGitLabURL(repoPath string) (string, error) {
 	out, err := exec.Command("git", "-C", repoPath, "remote", "get-url", "origin").Output()
 	if err != nil {
-		return "", fmt.Errorf("get git remote URL: %w", err)
+		return "", fmt.Errorf("get git remote URL: %s", cmdError(err))
 	}
 	return strings.TrimSpace(string(out)), nil
 }

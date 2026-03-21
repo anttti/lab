@@ -60,6 +60,14 @@ func (e *Engine) SyncRepo(repo *db.Repo) error {
 		return fmt.Errorf("SyncRepo list MRs: %w", err)
 	}
 
+	// Update project_id from the first MR if not yet set.
+	if repo.ProjectID == 0 && len(glabMRs) > 0 {
+		repo.ProjectID = glabMRs[0].ProjectID
+		if err := e.db.UpdateRepoProjectID(repo.ID, repo.ProjectID); err != nil {
+			return fmt.Errorf("SyncRepo update project_id: %w", err)
+		}
+	}
+
 	keepIIDs := make([]int, 0, len(glabMRs))
 
 	for _, glabMR := range glabMRs {

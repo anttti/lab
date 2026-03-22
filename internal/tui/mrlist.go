@@ -17,6 +17,7 @@ const (
 	filterGroupRepo filterGroup = iota
 	filterGroupAuthor
 	filterGroupLabels
+	filterGroupDraft
 )
 
 // mrItem holds display-ready data for a single MR row.
@@ -39,6 +40,7 @@ type mrsLoadedMsg struct {
 	selectedRepo   string
 	selectedAuthor string
 	selectedLabel  string
+	selectedDraft  string
 }
 
 // mrListModel is the home screen listing all MRs.
@@ -52,6 +54,7 @@ type mrListModel struct {
 	selectedRepo   string
 	selectedAuthor string
 	selectedLabel  string
+	selectedDraft  string // "", "drafts", "ready"
 	unreadOnly     bool
 
 	// Available filter options (loaded from DB).
@@ -77,9 +80,19 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 		repoFilter, _ := database.GetConfig("active_repo_filter")
 		authorFilter, _ := database.GetConfig("active_author_filter")
 		labelFilter, _ := database.GetConfig("active_label_filters")
+		draftFilter, _ := database.GetConfig("active_draft_filter")
 		unreadFilter, _ := database.GetConfig("active_unread_filter")
 
 		filter := db.MRFilter{}
+
+		switch draftFilter {
+		case "drafts":
+			t := true
+			filter.Draft = &t
+		case "ready":
+			f := false
+			filter.Draft = &f
+		}
 
 		repos, _ := database.ListRepos()
 
@@ -159,6 +172,7 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 			selectedRepo:   repoFilter,
 			selectedAuthor: authorFilter,
 			selectedLabel:  labelFilter,
+			selectedDraft:  draftFilter,
 		}
 	}
 }
@@ -182,6 +196,7 @@ func (m *mrListModel) saveAndReload() tea.Cmd {
 		_ = m.db.SetConfig("active_repo_filter", m.selectedRepo)
 		_ = m.db.SetConfig("active_author_filter", m.selectedAuthor)
 		_ = m.db.SetConfig("active_label_filters", m.selectedLabel)
+		_ = m.db.SetConfig("active_draft_filter", m.selectedDraft)
 		return m.loadMRs()()
 	}
 }
@@ -206,6 +221,15 @@ func (m *mrListModel) applySelection(group filterGroup, value string) {
 			m.selectedLabel = ""
 		} else {
 			m.selectedLabel = value
+		}
+	case filterGroupDraft:
+		switch value {
+		case "◇ Draft":
+			m.selectedDraft = "drafts"
+		case "◆ Ready":
+			m.selectedDraft = "ready"
+		default:
+			m.selectedDraft = ""
 		}
 	}
 }
@@ -233,6 +257,16 @@ func (m *mrListModel) openAutocomplete(group filterGroup) {
 		if current == "" {
 			current = "No filter"
 		}
+	case filterGroupDraft:
+		options = []string{"All", "◇ Draft", "◆ Ready"}
+		switch m.selectedDraft {
+		case "drafts":
+			current = "◇ Draft"
+		case "ready":
+			current = "◆ Ready"
+		default:
+			current = "All"
+		}
 	}
 	ac := newAutocomplete(options, current)
 	m.autocomplete = &ac
@@ -252,6 +286,7 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 			m.selectedRepo = msg.selectedRepo
 			m.selectedAuthor = msg.selectedAuthor
 			m.selectedLabel = msg.selectedLabel
+			m.selectedDraft = msg.selectedDraft
 			if m.cursor >= len(m.items) && len(m.items) > 0 {
 				m.cursor = len(m.items) - 1
 			}
@@ -315,6 +350,9 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, Keys.FilterLabel):
 			m.openAutocomplete(filterGroupLabels)
+
+		case key.Matches(msg, Keys.FilterDraft):
+			m.openAutocomplete(filterGroupDraft)
 
 		case key.Matches(msg, Keys.ToggleUnread):
 			return root, m.toggleUnreadFilter()
@@ -405,7 +443,7 @@ func (m *mrListModel) view(root *Model) string {
 	if m.autocomplete != nil {
 		help = "type to filter  ↑/↓/ctrl-p/ctrl-n: navigate  enter: select  esc: cancel"
 	} else {
-		help = "j/k: navigate  l/enter: select  r: repo  a: author  L: labels  u: unread  R: sync  q: quit"
+		help = "j/k: navigate  l/enter: select  r: repo  a: author  L: labels  d: draft  u: unread  R: sync  q: quit"
 	}
 	if root.syncing && root.syncStatus != "" {
 		help = pipelineRunning.Render("⟳ "+root.syncStatus) + "  " + help
@@ -415,7 +453,9 @@ func (m *mrListModel) view(root *Model) string {
 
 // renderFilterBar renders the inline filter boxes.
 func (m *mrListModel) renderFilterBar(innerWidth int) string {
-	boxWidth := (innerWidth - 2) / 3 // 2 gaps of 1 char each
+	draftBoxWidth := 14 // narrow box for the draft filter
+	remainingWidth := innerWidth - draftBoxWidth - 3 // 3 gaps of 1 char each
+	boxWidth := remainingWidth / 3
 	if boxWidth < 15 {
 		boxWidth = 15
 	}
@@ -432,14 +472,23 @@ func (m *mrListModel) renderFilterBar(innerWidth int) string {
 	if m.selectedLabel != "" {
 		labelVal = m.selectedLabel
 	}
+	draftVal := "All"
+	switch m.selectedDraft {
+	case "drafts":
+		draftVal = "◇ Draft"
+	case "ready":
+		draftVal = "◆ Ready"
+	}
 
 	repoActive := m.autocomplete != nil && m.activeFilter == filterGroupRepo
 	authorActive := m.autocomplete != nil && m.activeFilter == filterGroupAuthor
 	labelActive := m.autocomplete != nil && m.activeFilter == filterGroupLabels
+	draftActive := m.autocomplete != nil && m.activeFilter == filterGroupDraft
 
 	repoLines := filterBoxLines("Repo", repoVal, "r", boxWidth, repoActive)
 	authorLines := filterBoxLines("Author", authorVal, "a", boxWidth, authorActive)
 	labelLines := filterBoxLines("Labels", labelVal, "L", boxWidth, labelActive)
+	draftLines := filterBoxLines("Draft", draftVal, "d", draftBoxWidth, draftActive)
 
 	// Add unread indicator if active.
 	unreadIndicator := ""
@@ -454,6 +503,8 @@ func (m *mrListModel) renderFilterBar(innerWidth int) string {
 		sb.WriteString(authorLines[i])
 		sb.WriteString(" ")
 		sb.WriteString(labelLines[i])
+		sb.WriteString(" ")
+		sb.WriteString(draftLines[i])
 		if i == 1 {
 			sb.WriteString(unreadIndicator)
 		}

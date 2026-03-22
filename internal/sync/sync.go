@@ -152,6 +152,7 @@ func (e *Engine) syncMRItem(repo *db.Repo, glabMR glab.MRListItem) error {
 		Title:          glabMR.Title,
 		Author:         glabMR.Author.Username,
 		State:          glabMR.State,
+		Draft:          glabMR.Draft,
 		SourceBranch:   glabMR.SourceBranch,
 		TargetBranch:   glabMR.TargetBranch,
 		WebURL:         glabMR.WebURL,

@@ -333,7 +333,7 @@ func (m *mrListModel) view(root *Model) string {
 	}
 
 	title := titleStyle.Render("lab") + dimStyle.Render(fmt.Sprintf(" — %d MRs", len(m.items)))
-	help := "j/k: navigate  l/enter: select  f: filter  o: cycle project  u: unread  r: sync  q: quit"
+	help := "j/k: navigate  l/enter: select  f: filter  tab: cycle project  u: unread  r: sync  q: quit"
 	if root.syncing && root.syncStatus != "" {
 		help = pipelineRunning.Render("⟳ "+root.syncStatus) + "  " + help
 	}

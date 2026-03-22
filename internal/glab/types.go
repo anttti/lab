@@ -49,4 +49,5 @@ type Position struct {
 	NewPath string `json:"new_path"`
 	OldLine *int   `json:"old_line"`
 	NewLine *int   `json:"new_line"`
+	HeadSHA string `json:"head_sha"`
 }

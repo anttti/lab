@@ -17,6 +17,7 @@ type Comment struct {
 	FilePath     *string    `db:"file_path"`
 	OldLine      *int       `db:"old_line"`
 	NewLine      *int       `db:"new_line"`
+	DiffHunk     string     `db:"diff_hunk"`
 	Resolved     bool       `db:"resolved"`
 	CreatedAt    time.Time  `db:"created_at"`
 	SyncedAt     *time.Time `db:"synced_at"`
@@ -28,6 +29,7 @@ type Thread struct {
 	FilePath     *string
 	OldLine      *int
 	NewLine      *int
+	DiffHunk     string
 	Resolved     bool
 	Unread       bool
 	Comments     []Comment
@@ -39,18 +41,19 @@ func (db *Database) UpsertComment(c *Comment) error {
 	const q = `
 INSERT INTO comments
     (mr_id, discussion_id, note_id, author, body, file_path, old_line, new_line,
-     resolved, created_at, synced_at)
+     diff_hunk, resolved, created_at, synced_at)
 VALUES
-    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 ON CONFLICT(mr_id, note_id) DO UPDATE SET
     body      = excluded.body,
+    diff_hunk = excluded.diff_hunk,
     resolved  = excluded.resolved,
     synced_at = datetime('now')
 RETURNING id`
 
 	row := db.QueryRowx(q,
 		c.MRID, c.DiscussionID, c.NoteID, c.Author, c.Body,
-		c.FilePath, c.OldLine, c.NewLine, c.Resolved, c.CreatedAt,
+		c.FilePath, c.OldLine, c.NewLine, c.DiffHunk, c.Resolved, c.CreatedAt,
 	)
 	if err := row.Scan(&c.ID); err != nil {
 		return fmt.Errorf("UpsertComment: %w", err)
@@ -95,6 +98,7 @@ func (db *Database) ListThreads(mrID int64) ([]Thread, error) {
 				FilePath:     c.FilePath,
 				OldLine:      c.OldLine,
 				NewLine:      c.NewLine,
+				DiffHunk:     c.DiffHunk,
 				Resolved:     c.Resolved,
 				Unread:       unreadStatus[c.DiscussionID],
 			}

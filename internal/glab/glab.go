@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os/exec"
 	"strings"
 )
@@ -73,6 +74,41 @@ func cmdError(err error) string {
 		}
 	}
 	return err.Error()
+}
+
+// GetFileContent fetches the raw content of a file at a specific ref from GitLab.
+func (c *Client) GetFileContent(repoURL string, projectID int64, filePath, ref string) (string, error) {
+	encoded := url.PathEscape(filePath)
+	endpoint := fmt.Sprintf("projects/%d/repository/files/%s/raw?ref=%s", projectID, encoded, ref)
+	out, err := exec.Command("glab", "api", endpoint, "-R", repoURL).Output()
+	if err != nil {
+		return "", fmt.Errorf("glab api file content: %s", cmdError(err))
+	}
+	return string(out), nil
+}
+
+// ExtractSnippet extracts a few lines of context around a target line from file content.
+// Returns the snippet with up to contextLines above and below the target line.
+func ExtractSnippet(content string, targetLine, contextLines int) string {
+	lines := strings.Split(content, "\n")
+	if targetLine < 1 || targetLine > len(lines) {
+		return ""
+	}
+
+	start := targetLine - contextLines - 1
+	if start < 0 {
+		start = 0
+	}
+	end := targetLine + contextLines
+	if end > len(lines) {
+		end = len(lines)
+	}
+
+	var sb strings.Builder
+	for i := start; i < end; i++ {
+		sb.WriteString(fmt.Sprintf("%d\t%s\n", i+1, lines[i]))
+	}
+	return sb.String()
 }
 
 func (c *Client) GetGitLabURL(repoPath string) (string, error) {

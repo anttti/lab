@@ -19,6 +19,7 @@ type GlabClient interface {
 	ListMRs(repoURL string) ([]glab.MRListItem, error)
 	ListDiscussions(repoURL string, projectID int64, mrIID int) ([]glab.Discussion, error)
 	GetMRPipeline(repoURL string, projectID int64, mrIID int) (string, error)
+	GetFileContent(repoURL string, projectID int64, filePath, ref string) (string, error)
 }
 
 // Engine orchestrates syncing GitLab data into the local database.
@@ -196,11 +197,16 @@ func (e *Engine) SyncMR(repo *db.Repo, mrIID int) error {
 
 // syncDiscussions fetches discussions from GitLab and upserts them into the DB.
 // System notes are filtered out. Position data is mapped to file_path/old_line/new_line.
+// For diff notes, a code snippet is fetched from GitLab and stored as diff_hunk.
 func (e *Engine) syncDiscussions(repo *db.Repo, mr *db.MergeRequest, mrIID int) error {
 	discussions, err := e.client.ListDiscussions(repo.GitLabURL, repo.ProjectID, mrIID)
 	if err != nil {
 		return fmt.Errorf("syncDiscussions list: %w", err)
 	}
+
+	// Cache fetched file contents to avoid redundant API calls.
+	// Key: "ref:path"
+	fileCache := map[string]string{}
 
 	keepNoteIDs := []int{}
 
@@ -215,6 +221,7 @@ func (e *Engine) syncDiscussions(repo *db.Repo, mr *db.MergeRequest, mrIID int) 
 
 			var filePath *string
 			var oldLine, newLine *int
+			var diffHunk string
 
 			if note.Position != nil {
 				// Prefer new_path, fall back to old_path.
@@ -227,6 +234,31 @@ func (e *Engine) syncDiscussions(repo *db.Repo, mr *db.MergeRequest, mrIID int) 
 				}
 				oldLine = note.Position.OldLine
 				newLine = note.Position.NewLine
+
+				// Fetch code snippet for the first non-system note with position data.
+				if filePath != nil && note.Position.HeadSHA != "" {
+					targetLine := 0
+					if newLine != nil {
+						targetLine = *newLine
+					} else if oldLine != nil {
+						targetLine = *oldLine
+					}
+					if targetLine > 0 {
+						cacheKey := note.Position.HeadSHA + ":" + *filePath
+						content, ok := fileCache[cacheKey]
+						if !ok {
+							content, err = e.client.GetFileContent(repo.GitLabURL, repo.ProjectID, *filePath, note.Position.HeadSHA)
+							if err != nil {
+								log.Printf("fetch file snippet for %s@%s: %v", *filePath, note.Position.HeadSHA[:8], err)
+								content = ""
+							}
+							fileCache[cacheKey] = content
+						}
+						if content != "" {
+							diffHunk = glab.ExtractSnippet(content, targetLine, 3)
+						}
+					}
+				}
 			}
 
 			c := &db.Comment{
@@ -238,6 +270,7 @@ func (e *Engine) syncDiscussions(repo *db.Repo, mr *db.MergeRequest, mrIID int) 
 				FilePath:     filePath,
 				OldLine:      oldLine,
 				NewLine:      newLine,
+				DiffHunk:     diffHunk,
 				Resolved:     note.Resolved,
 				CreatedAt:    note.CreatedAt,
 			}

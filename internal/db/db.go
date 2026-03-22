@@ -107,6 +107,21 @@ CREATE TABLE IF NOT EXISTS thread_reads (
     PRIMARY KEY (mr_id, discussion_id)
 );
 `
-	_, err := db.Exec(schema)
-	return err
+	if _, err := db.Exec(schema); err != nil {
+		return err
+	}
+
+	// Add diff_hunk column if it doesn't exist (SQLite has no ADD COLUMN IF NOT EXISTS).
+	var count int
+	err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('comments') WHERE name = 'diff_hunk'`).Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		if _, err := db.Exec(`ALTER TABLE comments ADD COLUMN diff_hunk TEXT`); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

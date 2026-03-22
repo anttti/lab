@@ -215,6 +215,21 @@ func (m *threadModel) view(root *Model) string {
 		sb.WriteString("\n\n")
 	}
 
+	// Render code context if available.
+	if m.thread.DiffHunk != "" {
+		targetLine := 0
+		if m.thread.NewLine != nil {
+			targetLine = *m.thread.NewLine
+		} else if m.thread.OldLine != nil {
+			targetLine = *m.thread.OldLine
+		}
+		for _, line := range formatDiffHunk(m.thread.DiffHunk, targetLine, root.width-4) {
+			sb.WriteString(line)
+			sb.WriteString("\n")
+		}
+		sb.WriteString("\n")
+	}
+
 	// Render each comment, applying scroll offset.
 	lines := buildThreadLines(m.thread, root.width-2)
 	start := m.scroll
@@ -319,6 +334,41 @@ func ensureBranch(repoPath, branch string) error {
 	}
 
 	return git.Checkout(repoPath, branch)
+}
+
+// formatDiffHunk formats a code snippet into styled display lines.
+// The snippet format is "linenum\tcontent\n" per line. The target line
+// (matching the thread's line number) is highlighted.
+func formatDiffHunk(hunk string, targetLine int, maxWidth int) []string {
+	raw := strings.Split(strings.TrimRight(hunk, "\n"), "\n")
+	var lines []string
+	for _, line := range raw {
+		if line == "" {
+			continue
+		}
+		// Parse "linenum\tcontent" format.
+		parts := strings.SplitN(line, "\t", 2)
+		lineNum := parts[0]
+		content := ""
+		if len(parts) > 1 {
+			content = parts[1]
+		}
+
+		num := 0
+		fmt.Sscanf(lineNum, "%d", &num)
+
+		display := fmt.Sprintf(" %4s │ %s", lineNum, content)
+		if len([]rune(display)) > maxWidth {
+			display = string([]rune(display)[:maxWidth])
+		}
+
+		if num == targetLine {
+			lines = append(lines, selectedStyle.Render(display))
+		} else {
+			lines = append(lines, diffContextStyle.Render(display))
+		}
+	}
+	return lines
 }
 
 // timeAgo returns a human-friendly relative time string.

@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"testing"
@@ -19,9 +20,10 @@ func newTestEngine(database *db.Database, mock GlabClient) *Engine {
 
 // mockGlab implements GlabClient for testing.
 type mockGlab struct {
-	mrs         []glab.MRListItem
-	discussions map[int][]glab.Discussion
-	pipelines   map[int]string
+	mrs          []glab.MRListItem
+	discussions  map[int][]glab.Discussion
+	pipelines    map[int]string
+	fileContents map[string]string // key: "filePath@ref"
 }
 
 func (m *mockGlab) ListMRs(repoURL string) ([]glab.MRListItem, error) {
@@ -34,6 +36,15 @@ func (m *mockGlab) ListDiscussions(repoURL string, projectID int64, mrIID int) (
 
 func (m *mockGlab) GetMRPipeline(repoURL string, projectID int64, mrIID int) (string, error) {
 	return m.pipelines[mrIID], nil
+}
+
+func (m *mockGlab) GetFileContent(repoURL string, projectID int64, filePath, ref string) (string, error) {
+	if m.fileContents != nil {
+		if content, ok := m.fileContents[filePath+"@"+ref]; ok {
+			return content, nil
+		}
+	}
+	return "", fmt.Errorf("file not found")
 }
 
 // testSyncDB opens an in-memory SQLite database suitable for testing.
@@ -107,6 +118,7 @@ func TestSyncRepo_CreatesMRs(t *testing.T) {
 							Position: &glab.Position{
 								NewPath: "main.go",
 								NewLine: &newLine,
+								HeadSHA: "abc123def",
 							},
 						},
 					},
@@ -114,6 +126,9 @@ func TestSyncRepo_CreatesMRs(t *testing.T) {
 			},
 		},
 		pipelines: map[int]string{1: "success"},
+		fileContents: map[string]string{
+			"main.go@abc123def": "package main\n\nimport \"fmt\"\n\nfunc init() {\n}\n\nfunc hello() {\n}\n\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n",
+		},
 	}
 
 	engine := newTestEngine(database, mock)
@@ -178,6 +193,9 @@ func TestSyncRepo_CreatesMRs(t *testing.T) {
 	}
 	if c.Resolved {
 		t.Error("Resolved: want false, got true")
+	}
+	if c.DiffHunk == "" {
+		t.Error("DiffHunk: expected non-empty diff hunk")
 	}
 }
 

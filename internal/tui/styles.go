@@ -53,6 +53,15 @@ var (
 			Foreground(lipgloss.Color("252"))
 
 	borderColor = lipgloss.Color("246")
+
+	diffAddStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("42"))
+
+	diffDelStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("196"))
+
+	diffContextStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("245"))
 )
 
 // selectedBg is the raw ANSI escape for the selection background color.

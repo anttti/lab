@@ -9,6 +9,7 @@ import (
 
 	"lab/internal/claude"
 	"lab/internal/db"
+	"lab/internal/git"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -113,6 +114,13 @@ func (m *threadModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 				// Send as-is: suspend TUI, run claude inline.
 				thread := m.thread
 				repo := m.repo
+
+				if err := ensureBranch(repo, m.mr.SourceBranch); err != nil {
+					m.err = err.Error()
+					m.state = threadViewing
+					return root, nil
+				}
+
 				prompt := claude.BuildPrompt(&thread, repo)
 
 				cmd, err := claude.ClaudeCmd(prompt, repo)
@@ -131,6 +139,13 @@ func (m *threadModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 				// Augment in editor, then run claude inline.
 				thread := m.thread
 				repo := m.repo
+
+				if err := ensureBranch(repo, m.mr.SourceBranch); err != nil {
+					m.err = err.Error()
+					m.state = threadViewing
+					return root, nil
+				}
+
 				prompt := claude.BuildPrompt(&thread, repo)
 
 				tmpFile, err := claude.WritePromptToTempFile(prompt)
@@ -267,6 +282,28 @@ func wordWrap(s string, maxWidth int) []string {
 	}
 	lines = append(lines, current)
 	return lines
+}
+
+// ensureBranch checks that the repo is clean and switches to the given branch
+// if not already on it. Returns an error if the repo has uncommitted changes.
+func ensureBranch(repoPath, branch string) error {
+	if branch == "" {
+		return nil
+	}
+
+	if err := git.IsClean(repoPath); err != nil {
+		return fmt.Errorf("cannot switch to branch %s: %w — commit or stash your changes first", branch, err)
+	}
+
+	current, err := git.CurrentBranch(repoPath)
+	if err != nil {
+		return err
+	}
+	if current == branch {
+		return nil
+	}
+
+	return git.Checkout(repoPath, branch)
 }
 
 // timeAgo returns a human-friendly relative time string.

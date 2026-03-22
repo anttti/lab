@@ -405,7 +405,7 @@ func (m *mrListModel) view(root *Model) string {
 	if m.autocomplete != nil {
 		help = "type to filter  ↑/↓/ctrl-p/ctrl-n: navigate  enter: select  esc: cancel"
 	} else {
-		help = "j/k: navigate  l/enter: select  f: repo  a: author  d: labels  u: unread  r: sync  q: quit"
+		help = "j/k: navigate  l/enter: select  r: repo  a: author  L: labels  u: unread  R: sync  q: quit"
 	}
 	if root.syncing && root.syncStatus != "" {
 		help = pipelineRunning.Render("⟳ "+root.syncStatus) + "  " + help
@@ -437,9 +437,9 @@ func (m *mrListModel) renderFilterBar(innerWidth int) string {
 	authorActive := m.autocomplete != nil && m.activeFilter == filterGroupAuthor
 	labelActive := m.autocomplete != nil && m.activeFilter == filterGroupLabels
 
-	repoLines := filterBoxLines("Repo", repoVal, "f", boxWidth, repoActive)
+	repoLines := filterBoxLines("Repo", repoVal, "r", boxWidth, repoActive)
 	authorLines := filterBoxLines("Author", authorVal, "a", boxWidth, authorActive)
-	labelLines := filterBoxLines("Labels", labelVal, "d", boxWidth, labelActive)
+	labelLines := filterBoxLines("Labels", labelVal, "L", boxWidth, labelActive)
 
 	// Add unread indicator if active.
 	unreadIndicator := ""

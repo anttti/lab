@@ -232,9 +232,9 @@ func (m *mrListModel) view(root *Model) string {
 		sb.WriteString("\n")
 	} else {
 		// Calculate dynamic title column width based on terminal width.
-		// Fixed columns: cursor(2) + repo(12) + " !"(2) + IID(4) + " "(1) + " @"(2) + author(15) + suffix(6) = 44
-		// Plus 2 for panel border.
-		titleWidth := root.width - 46
+		// Fixed columns: cursor(2) + repo(12) + " !"(2) + IID(4) + " "(1) + unread(1) + " "(1)
+		//   + pipeline(1) + "  "(2) + " @"(2) + author(15) + " "(1) + unresolved(3) + border(2) = 49
+		titleWidth := root.width - 49
 		if titleWidth < 20 {
 			titleWidth = 20
 		}
@@ -245,33 +245,32 @@ func (m *mrListModel) view(root *Model) string {
 				cursor = "> "
 			}
 
-			// Build the row text.
-			title := truncate(item.mr.Title, titleWidth)
-			row := fmt.Sprintf("%-12s !%-4d %-*s @%-15s",
-				truncate(item.repoName, 12),
-				item.mr.IID,
-				titleWidth,
-				title,
-				truncate(item.mr.Author, 15),
-			)
-
-			// Unread indicator.
+			// Unread indicator (fixed width: 1 visual char).
+			unread := " "
 			if item.unreadCount > 0 {
-				row += " " + unreadStyle.Render("●")
+				unread = unreadStyle.Render("●")
 			}
 
-			// Unresolved count.
+			// Pipeline indicator (fixed width: 1 visual char).
+			pipeline := pipelineIndicator(item.mr.PipelineStatus)
+
+			// Unresolved count (fixed width: 3 visual chars, right-aligned).
+			unresolvedStr := "   "
 			if item.unresolvedCount > 0 {
-				row += " " + unresolvedStyle.Render(fmt.Sprintf("%d↩", item.unresolvedCount))
+				unresolvedStr = unresolvedStyle.Render(fmt.Sprintf("%2d↩", item.unresolvedCount))
 			}
 
-			// Pipeline indicator.
-			row += " " + pipelineIndicator(item.mr.PipelineStatus)
+			// Build the row: repo, MR ID, unread, pipeline, title, author, comment count.
+			title := truncate(item.mr.Title, titleWidth)
+			prefix := fmt.Sprintf("%-12s !%-4d ", truncate(item.repoName, 12), item.mr.IID)
+			titleAuthor := fmt.Sprintf("%-*s @%-15s ", titleWidth, title, truncate(item.mr.Author, 15))
 
 			if i == m.cursor {
-				sb.WriteString(selectedStyle.Render(cursor+row) + "\n")
+				row := selectedStyle.Render(cursor+prefix) + unread + " " + pipeline + "  " + selectedStyle.Render(titleAuthor) + unresolvedStr
+				sb.WriteString(row + "\n")
 			} else {
-				sb.WriteString(cursor + row + "\n")
+				row := cursor + prefix + unread + " " + pipeline + "  " + titleAuthor + unresolvedStr
+				sb.WriteString(row + "\n")
 			}
 		}
 	}

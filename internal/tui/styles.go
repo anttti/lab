@@ -19,12 +19,12 @@ var (
 			Foreground(lipgloss.Color("240"))
 
 	statusBarStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")).
-			Background(lipgloss.Color("236")).
+			Foreground(lipgloss.Color("248")).
+			Background(lipgloss.Color("238")).
 			Padding(0, 1)
 
 	helpStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241"))
+			Foreground(lipgloss.Color("248"))
 
 	pipelineSuccess = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("42"))
@@ -44,7 +44,7 @@ var (
 	unreadStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("39"))
 
-	borderColor = lipgloss.Color("240")
+	borderColor = lipgloss.Color("246")
 
 )
 

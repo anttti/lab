@@ -4,7 +4,7 @@ import "github.com/charmbracelet/bubbles/key"
 
 // KeyMap defines all keyboard bindings for the TUI.
 type KeyMap struct {
-	Up, Down, Select, Back, Top, Bottom, FilterRepo, FilterAuthor, FilterLabel, ToggleUnread, Sync, Claude, Next, Prev, Web, Quit key.Binding
+	Up, Down, Select, Back, Top, Bottom, FilterRepo, FilterAuthor, FilterLabel, FilterDraft, ToggleUnread, Sync, Claude, Next, Prev, Web, Quit key.Binding
 }
 
 // Keys holds the default vim-style key bindings.
@@ -18,6 +18,7 @@ var Keys = KeyMap{
 	FilterRepo:   key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "filter repo")),
 	FilterAuthor: key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "filter author")),
 	FilterLabel:  key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "filter labels")),
+	FilterDraft:  key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "filter draft")),
 	ToggleUnread: key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "toggle unread")),
 	Sync:         key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "sync")),
 	Claude:       key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "claude")),

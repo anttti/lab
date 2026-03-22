@@ -14,6 +14,7 @@ type MergeRequest struct {
 	Title          string     `db:"title"`
 	Author         string     `db:"author"`
 	State          string     `db:"state"`
+	Draft          bool       `db:"draft"`
 	SourceBranch   string     `db:"source_branch"`
 	TargetBranch   string     `db:"target_branch"`
 	WebURL         string     `db:"web_url"`
@@ -27,6 +28,7 @@ type MRFilter struct {
 	RepoID *int64
 	Author *string
 	Labels []string
+	Draft  *bool // nil = all, true = drafts only, false = non-drafts only
 }
 
 // UpsertMR inserts or updates a MergeRequest. On conflict (repo_id, iid) it
@@ -34,14 +36,15 @@ type MRFilter struct {
 func (db *Database) UpsertMR(mr *MergeRequest) error {
 	const q = `
 INSERT INTO merge_requests
-    (repo_id, iid, title, author, state, source_branch, target_branch,
+    (repo_id, iid, title, author, state, draft, source_branch, target_branch,
      web_url, pipeline_status, updated_at, synced_at)
 VALUES
-    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 ON CONFLICT(repo_id, iid) DO UPDATE SET
     title           = excluded.title,
     author          = excluded.author,
     state           = excluded.state,
+    draft           = excluded.draft,
     source_branch   = excluded.source_branch,
     target_branch   = excluded.target_branch,
     web_url         = excluded.web_url,
@@ -51,7 +54,7 @@ ON CONFLICT(repo_id, iid) DO UPDATE SET
 RETURNING id`
 
 	row := db.QueryRowx(q,
-		mr.RepoID, mr.IID, mr.Title, mr.Author, mr.State,
+		mr.RepoID, mr.IID, mr.Title, mr.Author, mr.State, mr.Draft,
 		mr.SourceBranch, mr.TargetBranch, mr.WebURL,
 		mr.PipelineStatus, mr.UpdatedAt,
 	)
@@ -88,6 +91,10 @@ func (db *Database) ListMRs(filter MRFilter) ([]MergeRequest, error) {
 	if filter.Author != nil {
 		where = append(where, "mr.author = ?")
 		args = append(args, *filter.Author)
+	}
+	if filter.Draft != nil {
+		where = append(where, "mr.draft = ?")
+		args = append(args, *filter.Draft)
 	}
 	if len(filter.Labels) > 0 {
 		placeholders := make([]string, len(filter.Labels))

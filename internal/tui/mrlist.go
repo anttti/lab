@@ -334,11 +334,10 @@ func (m *mrListModel) view(root *Model) string {
 
 	// Filter bar (3 boxes + optional unread indicator).
 	sb.WriteString(m.renderFilterBar(root.width - 2))
-	sb.WriteString("\n")
 
 	if m.autocomplete != nil {
 		// Show autocomplete dropdown instead of MR list.
-		acHeight := root.height - 8 // panel border(2) + help(1) + filter bar(4) + blank(1)
+		acHeight := root.height - 7 // panel border(2) + help(1) + filter bar(4)
 		if acHeight < 3 {
 			acHeight = 3
 		}
@@ -354,8 +353,8 @@ func (m *mrListModel) view(root *Model) string {
 				titleWidth = 20
 			}
 
-			// Filter bar takes 4 lines (3 box lines + 1 blank).
-			visibleRows := root.height - 8
+			// Filter bar takes 3 box lines.
+			visibleRows := root.height - 7
 			if visibleRows < 1 {
 				visibleRows = 1
 			}

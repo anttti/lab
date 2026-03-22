@@ -18,6 +18,7 @@ const (
 	filterGroupAuthor
 	filterGroupLabels
 	filterGroupDraft
+	filterGroupAccepted
 )
 
 // mrItem holds display-ready data for a single MR row.
@@ -40,7 +41,8 @@ type mrsLoadedMsg struct {
 	selectedRepo   string
 	selectedAuthor string
 	selectedLabel  string
-	selectedDraft  string
+	selectedDraft    string
+	selectedAccepted string
 }
 
 // mrListModel is the home screen listing all MRs.
@@ -54,8 +56,9 @@ type mrListModel struct {
 	selectedRepo   string
 	selectedAuthor string
 	selectedLabel  string
-	selectedDraft  string // "", "drafts", "ready"
-	unreadOnly     bool
+	selectedDraft    string // "", "drafts", "ready"
+	selectedAccepted string // "", "accepted", "not_accepted"
+	unreadOnly       bool
 
 	// Available filter options (loaded from DB).
 	repoOptions   []string
@@ -81,6 +84,7 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 		authorFilter, _ := database.GetConfig("active_author_filter")
 		labelFilter, _ := database.GetConfig("active_label_filters")
 		draftFilter, _ := database.GetConfig("active_draft_filter")
+		acceptedFilter, _ := database.GetConfig("active_accepted_filter")
 		unreadFilter, _ := database.GetConfig("active_unread_filter")
 
 		filter := db.MRFilter{}
@@ -92,6 +96,15 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 		case "ready":
 			f := false
 			filter.Draft = &f
+		}
+
+		switch acceptedFilter {
+		case "accepted":
+			t := true
+			filter.Approved = &t
+		case "not_accepted":
+			f := false
+			filter.Approved = &f
 		}
 
 		repos, _ := database.ListRepos()
@@ -172,7 +185,8 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 			selectedRepo:   repoFilter,
 			selectedAuthor: authorFilter,
 			selectedLabel:  labelFilter,
-			selectedDraft:  draftFilter,
+			selectedDraft:    draftFilter,
+			selectedAccepted: acceptedFilter,
 		}
 	}
 }
@@ -197,6 +211,7 @@ func (m *mrListModel) saveAndReload() tea.Cmd {
 		_ = m.db.SetConfig("active_author_filter", m.selectedAuthor)
 		_ = m.db.SetConfig("active_label_filters", m.selectedLabel)
 		_ = m.db.SetConfig("active_draft_filter", m.selectedDraft)
+		_ = m.db.SetConfig("active_accepted_filter", m.selectedAccepted)
 		return m.loadMRs()()
 	}
 }
@@ -230,6 +245,15 @@ func (m *mrListModel) applySelection(group filterGroup, value string) {
 			m.selectedDraft = "ready"
 		default:
 			m.selectedDraft = ""
+		}
+	case filterGroupAccepted:
+		switch value {
+		case "✓ Accepted":
+			m.selectedAccepted = "accepted"
+		case "— Not accepted":
+			m.selectedAccepted = "not_accepted"
+		default:
+			m.selectedAccepted = ""
 		}
 	}
 }
@@ -267,6 +291,16 @@ func (m *mrListModel) openAutocomplete(group filterGroup) {
 		default:
 			current = "All"
 		}
+	case filterGroupAccepted:
+		options = []string{"All", "✓ Accepted", "— Not accepted"}
+		switch m.selectedAccepted {
+		case "accepted":
+			current = "✓ Accepted"
+		case "not_accepted":
+			current = "— Not accepted"
+		default:
+			current = "All"
+		}
 	}
 	ac := newAutocomplete(options, current)
 	m.autocomplete = &ac
@@ -287,6 +321,7 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 			m.selectedAuthor = msg.selectedAuthor
 			m.selectedLabel = msg.selectedLabel
 			m.selectedDraft = msg.selectedDraft
+			m.selectedAccepted = msg.selectedAccepted
 			if m.cursor >= len(m.items) && len(m.items) > 0 {
 				m.cursor = len(m.items) - 1
 			}
@@ -353,6 +388,9 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, Keys.FilterDraft):
 			m.openAutocomplete(filterGroupDraft)
+
+		case key.Matches(msg, Keys.FilterAccepted):
+			m.openAutocomplete(filterGroupAccepted)
 
 		case key.Matches(msg, Keys.ToggleUnread):
 			return root, m.toggleUnreadFilter()
@@ -443,7 +481,7 @@ func (m *mrListModel) view(root *Model) string {
 	if m.autocomplete != nil {
 		help = "type to filter  ↑/↓/ctrl-p/ctrl-n: navigate  enter: select  esc: cancel"
 	} else {
-		help = "j/k: navigate  l/enter: select  r: repo  a: author  L: labels  d: draft  u: unread  R: sync  q: quit"
+		help = "j/k: navigate  l/enter: select  r: repo  a: author  L: labels  d: draft  c: accepted  u: unread  R: sync  q: quit"
 	}
 	if root.syncing && root.syncStatus != "" {
 		help = pipelineRunning.Render("⟳ "+root.syncStatus) + "  " + help
@@ -453,8 +491,8 @@ func (m *mrListModel) view(root *Model) string {
 
 // renderFilterBar renders the inline filter boxes.
 func (m *mrListModel) renderFilterBar(innerWidth int) string {
-	draftBoxWidth := 14 // narrow box for the draft filter
-	remainingWidth := innerWidth - draftBoxWidth - 3 // 3 gaps of 1 char each
+	narrowBoxWidth := 14 // narrow box for draft and accepted filters
+	remainingWidth := innerWidth - narrowBoxWidth*2 - 4 // 4 gaps of 1 char each
 	boxWidth := remainingWidth / 3
 	if boxWidth < 15 {
 		boxWidth = 15
@@ -479,16 +517,25 @@ func (m *mrListModel) renderFilterBar(innerWidth int) string {
 	case "ready":
 		draftVal = "◆ Ready"
 	}
+	acceptedVal := "All"
+	switch m.selectedAccepted {
+	case "accepted":
+		acceptedVal = "✓ Accepted"
+	case "not_accepted":
+		acceptedVal = "— Not accepted"
+	}
 
 	repoActive := m.autocomplete != nil && m.activeFilter == filterGroupRepo
 	authorActive := m.autocomplete != nil && m.activeFilter == filterGroupAuthor
 	labelActive := m.autocomplete != nil && m.activeFilter == filterGroupLabels
 	draftActive := m.autocomplete != nil && m.activeFilter == filterGroupDraft
+	acceptedActive := m.autocomplete != nil && m.activeFilter == filterGroupAccepted
 
 	repoLines := filterBoxLines("Repo", repoVal, "r", boxWidth, repoActive)
 	authorLines := filterBoxLines("Author", authorVal, "a", boxWidth, authorActive)
 	labelLines := filterBoxLines("Labels", labelVal, "L", boxWidth, labelActive)
-	draftLines := filterBoxLines("Draft", draftVal, "d", draftBoxWidth, draftActive)
+	draftLines := filterBoxLines("Draft", draftVal, "d", narrowBoxWidth, draftActive)
+	acceptedLines := filterBoxLines("Acc.", acceptedVal, "c", narrowBoxWidth, acceptedActive)
 
 	// Add unread indicator if active.
 	unreadIndicator := ""
@@ -505,6 +552,8 @@ func (m *mrListModel) renderFilterBar(innerWidth int) string {
 		sb.WriteString(labelLines[i])
 		sb.WriteString(" ")
 		sb.WriteString(draftLines[i])
+		sb.WriteString(" ")
+		sb.WriteString(acceptedLines[i])
 		if i == 1 {
 			sb.WriteString(unreadIndicator)
 		}

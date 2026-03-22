@@ -26,10 +26,11 @@ type MergeRequest struct {
 
 // MRFilter holds optional filter criteria for ListMRs.
 type MRFilter struct {
-	RepoID *int64
-	Author *string
-	Labels []string
-	Draft  *bool // nil = all, true = drafts only, false = non-drafts only
+	RepoID   *int64
+	Author   *string
+	Labels   []string
+	Draft    *bool // nil = all, true = drafts only, false = non-drafts only
+	Approved *bool // nil = all, true = approved only, false = not-approved only
 }
 
 // UpsertMR inserts or updates a MergeRequest. On conflict (repo_id, iid) it
@@ -97,6 +98,10 @@ func (db *Database) ListMRs(filter MRFilter) ([]MergeRequest, error) {
 	if filter.Draft != nil {
 		where = append(where, "mr.draft = ?")
 		args = append(args, *filter.Draft)
+	}
+	if filter.Approved != nil {
+		where = append(where, "mr.approved = ?")
+		args = append(args, *filter.Approved)
 	}
 	if len(filter.Labels) > 0 {
 		placeholders := make([]string, len(filter.Labels))

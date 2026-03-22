@@ -4,7 +4,7 @@ import "github.com/charmbracelet/bubbles/key"
 
 // KeyMap defines all keyboard bindings for the TUI.
 type KeyMap struct {
-	Up, Down, Select, Back, Top, Bottom, FilterRepo, FilterAuthor, FilterLabel, FilterDraft, FilterAccepted, ToggleUnread, Sync, Claude, Next, Prev, Web, Quit key.Binding
+	Up, Down, Select, Back, Top, Bottom, FilterRepo, FilterAuthor, FilterLabel, FilterDraft, FilterAccepted, CycleRepoNext, CycleRepoPrev, CycleAuthorNext, CycleAuthorPrev, ToggleUnread, Sync, Claude, Next, Prev, Web, Quit key.Binding
 }
 
 // Keys holds the default vim-style key bindings.
@@ -20,6 +20,10 @@ var Keys = KeyMap{
 	FilterLabel:  key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "filter labels")),
 	FilterDraft:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "filter draft")),
 	FilterAccepted: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "filter accepted")),
+	CycleRepoNext:   key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next repo")),
+	CycleRepoPrev:   key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev repo")),
+	CycleAuthorNext: key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next author")),
+	CycleAuthorPrev: key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev author")),
 	ToggleUnread: key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "toggle unread")),
 	Sync:         key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "sync")),
 	Claude:         key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "claude")),

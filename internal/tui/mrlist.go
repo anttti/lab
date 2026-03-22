@@ -258,6 +258,47 @@ func (m *mrListModel) applySelection(group filterGroup, value string) {
 	}
 }
 
+// cycleFilter cycles the given filter group by delta (+1 or -1) without opening autocomplete.
+func (m *mrListModel) cycleFilter(group filterGroup, delta int) {
+	var options []string
+	var current string
+	var allLabel string
+
+	switch group {
+	case filterGroupRepo:
+		options = m.repoOptions
+		current = m.selectedRepo
+		allLabel = "All repos"
+	case filterGroupAuthor:
+		options = m.authorOptions
+		current = m.selectedAuthor
+		allLabel = "All authors"
+	default:
+		return
+	}
+
+	// Build full list: "All" sentinel + actual options.
+	full := append([]string{""}, options...)
+	idx := 0
+	for i, o := range full {
+		if o == current {
+			idx = i
+			break
+		}
+	}
+	idx += delta
+	if idx < 0 {
+		idx = len(full) - 1
+	} else if idx >= len(full) {
+		idx = 0
+	}
+	value := full[idx]
+	if value == "" {
+		value = allLabel
+	}
+	m.applySelection(group, value)
+}
+
 // openAutocomplete starts the autocomplete for the given filter group.
 func (m *mrListModel) openAutocomplete(group filterGroup) {
 	var options []string
@@ -391,6 +432,22 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, Keys.FilterAccepted):
 			m.openAutocomplete(filterGroupAccepted)
+
+		case key.Matches(msg, Keys.CycleRepoNext):
+			m.cycleFilter(filterGroupRepo, 1)
+			return root, m.saveAndReload()
+
+		case key.Matches(msg, Keys.CycleRepoPrev):
+			m.cycleFilter(filterGroupRepo, -1)
+			return root, m.saveAndReload()
+
+		case key.Matches(msg, Keys.CycleAuthorNext):
+			m.cycleFilter(filterGroupAuthor, 1)
+			return root, m.saveAndReload()
+
+		case key.Matches(msg, Keys.CycleAuthorPrev):
+			m.cycleFilter(filterGroupAuthor, -1)
+			return root, m.saveAndReload()
 
 		case key.Matches(msg, Keys.ToggleUnread):
 			return root, m.toggleUnreadFilter()

@@ -119,6 +119,41 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 	}
 }
 
+// cycleRepoFilter advances the repo filter to the next option and reloads MRs.
+func (m *mrListModel) cycleRepoFilter() tea.Cmd {
+	return func() tea.Msg {
+		database := m.db
+		repos, err := database.ListRepos()
+		if err != nil {
+			return mrsLoadedMsg{err: err}
+		}
+
+		current, _ := database.GetConfig("active_repo_filter")
+
+		// Build option list: "" (all), then each repo name.
+		options := make([]string, 0, len(repos)+1)
+		options = append(options, "")
+		for _, r := range repos {
+			options = append(options, r.Name)
+		}
+
+		// Find current index and advance.
+		idx := 0
+		for i, o := range options {
+			if o == current {
+				idx = i
+				break
+			}
+		}
+		next := options[(idx+1)%len(options)]
+
+		_ = database.SetConfig("active_repo_filter", next)
+
+		// Now load MRs with the updated filter (reuse loadMRs logic inline).
+		return m.loadMRs()()
+	}
+}
+
 // update handles input for the MR list view.
 func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -163,6 +198,9 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 				root.current = viewMRDetail
 				return root, root.mrDetail.loadThreads()
 			}
+
+		case key.Matches(msg, Keys.CycleFilter):
+			return root, m.cycleRepoFilter()
 
 		case key.Matches(msg, Keys.Filter):
 			filt := newFilterModel(root)
@@ -241,7 +279,7 @@ func (m *mrListModel) view(root *Model) string {
 	}
 
 	sb.WriteString("\n")
-	sb.WriteString(helpStyle.Render("j/k: navigate  l/enter: select  f: filter  r: sync  q: quit"))
+	sb.WriteString(helpStyle.Render("j/k: navigate  l/enter: select  f: filter  o: cycle project  r: sync  q: quit"))
 
 	return sb.String()
 }

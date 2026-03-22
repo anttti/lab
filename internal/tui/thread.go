@@ -166,6 +166,22 @@ func (m *threadModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 func (m *threadModel) view(root *Model) string {
 	var sb strings.Builder
 
+	if m.err != "" {
+		sb.WriteString(unresolvedStyle.Render("! "+m.err))
+		sb.WriteString("\n\n")
+	}
+
+	// Render each comment, applying scroll offset.
+	lines := buildThreadLines(m.thread, root.width-2)
+	start := m.scroll
+	if start > len(lines) {
+		start = len(lines)
+	}
+	for _, line := range lines[start:] {
+		sb.WriteString(line)
+		sb.WriteString("\n")
+	}
+
 	// Title: file:line or "General".
 	location := "General"
 	if m.thread.FilePath != nil {
@@ -177,35 +193,16 @@ func (m *threadModel) view(root *Model) string {
 		}
 	}
 
-	header := fmt.Sprintf("Thread %d/%d — %s  (MR !%d: %s)", m.index+1, len(m.threads), location, m.mr.IID, truncate(m.mr.Title, 40))
-	sb.WriteString(titleStyle.Render(header))
-	sb.WriteString("\n\n")
+	title := fmt.Sprintf("Thread %d/%d — %s  (MR !%d: %s)", m.index+1, len(m.threads), location, m.mr.IID, truncate(m.mr.Title, 40))
 
-	if m.err != "" {
-		sb.WriteString(unresolvedStyle.Render("! "+m.err))
-		sb.WriteString("\n\n")
-	}
-
-	// Render each comment, applying scroll offset.
-	lines := buildThreadLines(m.thread, root.width)
-	start := m.scroll
-	if start > len(lines) {
-		start = len(lines)
-	}
-	for _, line := range lines[start:] {
-		sb.WriteString(line)
-		sb.WriteString("\n")
-	}
-
-	sb.WriteString("\n")
-
+	var help string
 	if m.state == threadClaudeChoice {
-		sb.WriteString(helpStyle.Render("Send as-is (s) or augment in editor (a)? (esc to cancel)"))
+		help = "Send as-is (s) or augment in editor (a)? (esc to cancel)"
 	} else {
-		sb.WriteString(helpStyle.Render("j/k: scroll  n/p: next/prev thread  c: claude  h/b: back  q: quit"))
+		help = "j/k: scroll  n/p: next/prev thread  c: claude  h/b: back  q: quit"
 	}
 
-	return sb.String()
+	return renderPanel(title, sb.String(), help, root.width, root.height)
 }
 
 // buildThreadLines converts thread comments into display lines.

@@ -142,11 +142,6 @@ func (m *mrDetailModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 func (m *mrDetailModel) view(root *Model) string {
 	var sb strings.Builder
 
-	// Title.
-	header := fmt.Sprintf("%s  !%d  %s", m.repoName, m.mr.IID, m.mr.Title)
-	sb.WriteString(titleStyle.Render(header))
-	sb.WriteString("\n\n")
-
 	if m.syncing {
 		sb.WriteString(pipelineRunning.Render("Syncing..."))
 		sb.WriteString("\n\n")
@@ -211,8 +206,7 @@ func (m *mrDetailModel) view(root *Model) string {
 		}
 	}
 
-	sb.WriteString("\n")
-	sb.WriteString(helpStyle.Render("j/k: navigate  l/enter: view thread  r: sync  h/b: back  q: quit"))
-
-	return sb.String()
+	title := fmt.Sprintf("%s  !%d  %s", m.repoName, m.mr.IID, truncate(m.mr.Title, 40))
+	help := "j/k: navigate  l/enter: view thread  r: sync  h/b: back  q: quit"
+	return renderPanel(title, sb.String(), help, root.width, root.height)
 }

@@ -235,9 +235,6 @@ func (m *filterModel) toggleSelection() {
 func (m *filterModel) view(root *Model) string {
 	var sb strings.Builder
 
-	sb.WriteString(titleStyle.Render("Filters"))
-	sb.WriteString("\n\n")
-
 	// Repo group.
 	repoActive := m.group == filterGroupRepo
 	groupLabel := "  Repo"
@@ -302,10 +299,9 @@ func (m *filterModel) view(root *Model) string {
 	}
 	renderList(&sb, labelItems, labelSelected, m.cursor, labelsActive)
 
-	sb.WriteString("\n")
-	sb.WriteString(helpStyle.Render("tab/shift-tab: switch group  j/k: navigate  space/enter: toggle  esc: save & back"))
-
-	return sb.String()
+	title := "Filters"
+	help := "tab/shift-tab: switch group  j/k: navigate  space/enter: toggle  esc: save & back"
+	return renderPanel(title, sb.String(), help, root.width, root.height)
 }
 
 // renderList renders a selectable list into sb.

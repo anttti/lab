@@ -219,12 +219,9 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 func (m *mrListModel) view(root *Model) string {
 	var sb strings.Builder
 
-	sb.WriteString(titleStyle.Render("lab"))
-	sb.WriteString("\n")
-
 	// Filter status bar.
 	if m.activeFilters != "" {
-		sb.WriteString(statusBarStyle.Render("Filters: "+m.activeFilters))
+		sb.WriteString(statusBarStyle.Render("Filters: " + m.activeFilters))
 	} else {
 		sb.WriteString(statusBarStyle.Render("No filters active"))
 	}
@@ -236,7 +233,8 @@ func (m *mrListModel) view(root *Model) string {
 	} else {
 		// Calculate dynamic title column width based on terminal width.
 		// Fixed columns: cursor(2) + repo(12) + " !"(2) + IID(4) + " "(1) + " @"(2) + author(15) + suffix(6) = 44
-		titleWidth := root.width - 44
+		// Plus 2 for panel border.
+		titleWidth := root.width - 46
 		if titleWidth < 20 {
 			titleWidth = 20
 		}
@@ -278,10 +276,9 @@ func (m *mrListModel) view(root *Model) string {
 		}
 	}
 
-	sb.WriteString("\n")
-	sb.WriteString(helpStyle.Render("j/k: navigate  l/enter: select  f: filter  o: cycle project  r: sync  q: quit"))
-
-	return sb.String()
+	title := titleStyle.Render("lab") + dimStyle.Render(fmt.Sprintf(" — %d MRs", len(m.items)))
+	help := "j/k: navigate  l/enter: select  f: filter  o: cycle project  r: sync  q: quit"
+	return renderPanel(title, sb.String(), help, root.width, root.height)
 }
 
 // pipelineIndicator returns a styled pipeline status symbol.

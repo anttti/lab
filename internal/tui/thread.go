@@ -9,6 +9,7 @@ import (
 
 	"lab/internal/claude"
 	"lab/internal/db"
+
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -109,17 +110,25 @@ func (m *threadModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 		case threadClaudeChoice:
 			switch msg.String() {
 			case "s":
-				// Send as-is.
+				// Send as-is: suspend TUI, run claude inline.
 				thread := m.thread
 				repo := m.repo
 				prompt := claude.BuildPrompt(&thread, repo)
-				return root, func() tea.Msg {
-					err := claude.LaunchInNewTerminal(prompt, repo)
-					return claudeLaunchedMsg{err: err}
+
+				cmd, err := claude.ClaudeCmd(prompt, repo)
+				if err != nil {
+					m.err = err.Error()
+					m.state = threadViewing
+					return root, nil
 				}
 
+				m.state = threadViewing
+				return root, tea.ExecProcess(cmd, func(err error) tea.Msg {
+					return claudeLaunchedMsg{err: err}
+				})
+
 			case "a":
-				// Augment in editor first.
+				// Augment in editor, then run claude inline.
 				thread := m.thread
 				repo := m.repo
 				prompt := claude.BuildPrompt(&thread, repo)
@@ -143,15 +152,20 @@ func (m *threadModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 						return claudeLaunchedMsg{err: fmt.Errorf("editor: %w", err)}
 					}
 
-					// Read the edited file.
 					data, readErr := os.ReadFile(tmpFile)
 					_ = os.Remove(tmpFile)
 					if readErr != nil {
 						return claudeLaunchedMsg{err: fmt.Errorf("read edited file: %w", readErr)}
 					}
 
-					launchErr := claude.LaunchInNewTerminal(string(data), repo)
-					return claudeLaunchedMsg{err: launchErr}
+					cmd, cmdErr := claude.ClaudeCmd(string(data), repo)
+					if cmdErr != nil {
+						return claudeLaunchedMsg{err: cmdErr}
+					}
+
+					// Run claude synchronously; we're already outside the TUI.
+					runErr := cmd.Run()
+					return claudeLaunchedMsg{err: runErr}
 				})
 
 			case "esc":
@@ -167,7 +181,7 @@ func (m *threadModel) view(root *Model) string {
 	var sb strings.Builder
 
 	if m.err != "" {
-		sb.WriteString(unresolvedStyle.Render("! "+m.err))
+		sb.WriteString(unresolvedStyle.Render("! " + m.err))
 		sb.WriteString("\n\n")
 	}
 

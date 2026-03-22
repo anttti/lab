@@ -13,6 +13,7 @@ import (
 type mrItem struct {
 	mr              db.MergeRequest
 	repoName        string
+	repoPath        string
 	unresolvedCount int
 	unreadCount     int
 }
@@ -84,11 +85,13 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 			return mrsLoadedMsg{err: err}
 		}
 
-		// Build repo name map.
+		// Build repo name/path maps.
 		repos, _ := database.ListRepos()
 		repoNames := make(map[int64]string, len(repos))
+		repoPaths := make(map[int64]string, len(repos))
 		for _, r := range repos {
 			repoNames[r.ID] = r.Name
+			repoPaths[r.ID] = r.Path
 		}
 
 		items := make([]mrItem, 0, len(mrs))
@@ -98,6 +101,7 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 			items = append(items, mrItem{
 				mr:              mr,
 				repoName:        repoNames[mr.RepoID],
+				repoPath:        repoPaths[mr.RepoID],
 				unresolvedCount: unresolved,
 				unreadCount:     unread,
 			})
@@ -193,7 +197,7 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, Keys.Select):
 			if len(m.items) > 0 {
 				item := m.items[m.cursor]
-				detail := newMRDetailModel(root, item.mr, item.repoName)
+				detail := newMRDetailModel(root, item.mr, item.repoName, item.repoPath)
 				root.mrDetail = detail
 				root.current = viewMRDetail
 				return root, root.mrDetail.loadThreads()

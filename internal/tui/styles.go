@@ -44,6 +44,9 @@ var (
 	unreadStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("39"))
 
+	previewStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("252"))
+
 	borderColor = lipgloss.Color("246")
 
 )

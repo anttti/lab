@@ -8,6 +8,7 @@ import (
 	gosync "lab/internal/sync"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // threadsLoadedMsg carries threads loaded from the DB.
@@ -27,17 +28,19 @@ type mrDetailModel struct {
 	sync     *gosync.Engine
 	mr       db.MergeRequest
 	repoName string
+	repoPath string
 	threads  []db.Thread
 	cursor   int
 	syncing  bool
 }
 
-func newMRDetailModel(root *Model, mr db.MergeRequest, repoName string) mrDetailModel {
+func newMRDetailModel(root *Model, mr db.MergeRequest, repoName, repoPath string) mrDetailModel {
 	return mrDetailModel{
 		db:       root.db,
 		sync:     root.sync,
 		mr:       mr,
 		repoName: repoName,
+		repoPath: repoPath,
 	}
 }
 
@@ -121,7 +124,7 @@ func (m *mrDetailModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, Keys.Select):
 			if len(m.threads) > 0 {
-				tv, cmd := newThreadModel(root, m.threads, m.cursor, m.mr, m.repoName)
+				tv, cmd := newThreadModel(root, m.threads, m.cursor, m.mr, m.repoPath)
 				root.thread = tv
 				root.current = viewThread
 				return root, cmd
@@ -184,19 +187,31 @@ func (m *mrDetailModel) view(root *Model) string {
 				unreadLabel = unreadStyle.Render(" ●")
 			}
 
-			// First comment preview.
-			preview := ""
-			if len(thread.Comments) > 0 {
-				preview = truncate(thread.Comments[0].Body, 50)
-			}
-
-			row := fmt.Sprintf("%-30s  %d notes%s%s  %s",
+			// Build the fixed-width prefix before the preview.
+			prefix := fmt.Sprintf("%-30s  %d notes%s%s  ",
 				truncate(location, 30),
 				noteCount,
 				resolvedLabel,
 				unreadLabel,
-				dimStyle.Render(preview),
 			)
+
+			// First comment preview, constrained to remaining width.
+			preview := ""
+			if len(thread.Comments) > 0 {
+				// Strip newlines to keep preview on a single row.
+				body := strings.ReplaceAll(thread.Comments[0].Body, "\n", " ")
+				body = strings.ReplaceAll(body, "\r", "")
+				// 2 for cursor, 2 for panel borders.
+				maxPreview := root.width - 2 - 2 - lipgloss.Width(prefix)
+				if maxPreview < 0 {
+					maxPreview = 0
+				}
+				if maxPreview > 0 {
+					preview = previewStyle.Render(truncate(body, maxPreview))
+				}
+			}
+
+			row := prefix + preview
 
 			if i == m.cursor {
 				sb.WriteString(selectedStyle.Render(cursor+row) + "\n")

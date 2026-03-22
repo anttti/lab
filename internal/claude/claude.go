@@ -51,40 +51,14 @@ func WritePromptToTempFile(prompt string) (string, error) {
 	return f.Name(), nil
 }
 
-// LaunchInNewTerminal writes the prompt to a temp file and opens a new
-// terminal window running claude with that prompt file.
-func LaunchInNewTerminal(prompt, repoPath string) error {
+// ClaudeCmd returns an exec.Cmd that runs claude with the given prompt
+// in the specified repo directory.
+func ClaudeCmd(prompt, repoPath string) (*exec.Cmd, error) {
 	if _, err := exec.LookPath("claude"); err != nil {
-		return fmt.Errorf("claude not found on PATH: %w", err)
+		return nil, fmt.Errorf("claude not found on PATH: %w", err)
 	}
 
-	tmpFile, err := WritePromptToTempFile(prompt)
-	if err != nil {
-		return err
-	}
-
-	shellCmd := fmt.Sprintf("cd %s && claude --prompt-file %s; rm -f %s",
-		repoPath, tmpFile, tmpFile)
-
-	return openTerminalWindow(shellCmd)
-}
-
-// openTerminalWindow opens a new terminal window running shellCmd.
-// It supports iTerm.app and falls back to Terminal.app via AppleScript.
-func openTerminalWindow(shellCmd string) error {
-	termProgram := os.Getenv("TERM_PROGRAM")
-
-	var script string
-	if termProgram == "iTerm.app" {
-		script = fmt.Sprintf(`tell application "iTerm"
-    create window with default profile command "bash -c %q"
-end tell`, shellCmd)
-	} else {
-		script = fmt.Sprintf(`tell application "Terminal"
-    do script "bash -c %q"
-    activate
-end tell`, shellCmd)
-	}
-
-	return exec.Command("osascript", "-e", script).Start()
+	cmd := exec.Command("claude", prompt)
+	cmd.Dir = repoPath
+	return cmd, nil
 }

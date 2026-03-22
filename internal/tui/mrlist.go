@@ -348,7 +348,7 @@ func (m *mrListModel) view(root *Model) string {
 			sb.WriteString(dimStyle.Render("No merge requests found."))
 			sb.WriteString("\n")
 		} else {
-			titleWidth := root.width - 48
+			titleWidth := root.width - 52
 			if titleWidth < 20 {
 				titleWidth = 20
 			}
@@ -378,6 +378,7 @@ func (m *mrListModel) view(root *Model) string {
 					unread = unreadStyle.Render("●")
 				}
 
+				approval := approvalIndicator(item.mr.Approved)
 				pipeline := pipelineIndicator(item.mr.PipelineStatus)
 
 				unresolvedStr := "   "
@@ -389,7 +390,7 @@ func (m *mrListModel) view(root *Model) string {
 				prefix := fmt.Sprintf(" %-12s !%-4d ", truncate(item.repoName, 12), item.mr.IID)
 				titleAuthor := fmt.Sprintf("%-*s @%-15s ", titleWidth, title, truncate(item.mr.Author, 15))
 
-				row := prefix + unread + " " + pipeline + "  " + titleAuthor + unresolvedStr
+				row := prefix + unread + " " + approval + " " + pipeline + "  " + titleAuthor + unresolvedStr
 				if i == m.cursor {
 					sb.WriteString(renderSelectedRow(row, root.width-2) + "\n")
 				} else {
@@ -498,6 +499,14 @@ func filterBoxLines(title, value, hotkey string, width int, active bool) [3]stri
 	bottom := bStyle.Render(bc.BottomLeft + strings.Repeat(bc.Bottom, innerW) + bc.BottomRight)
 
 	return [3]string{top, mid, bottom}
+}
+
+// approvalIndicator returns a styled approval status symbol.
+func approvalIndicator(approved bool) string {
+	if approved {
+		return approvalApproved.Render("✓")
+	}
+	return dimStyle.Render("—")
 }
 
 // pipelineIndicator returns a styled pipeline status symbol.

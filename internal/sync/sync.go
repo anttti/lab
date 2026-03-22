@@ -18,7 +18,7 @@ const maxConcurrency = 4
 type GlabClient interface {
 	ListMRs(repoURL string) ([]glab.MRListItem, error)
 	ListDiscussions(repoURL string, projectID int64, mrIID int) ([]glab.Discussion, error)
-	GetMRPipeline(repoURL string, projectID int64, mrIID int) (string, error)
+	GetMRDetail(repoURL string, projectID int64, mrIID int) (glab.MRDetail, error)
 	GetFileContent(repoURL string, projectID int64, filePath, ref string) (string, error)
 }
 
@@ -136,14 +136,14 @@ func (e *Engine) SyncRepo(repo *db.Repo) error {
 
 // syncMRItem fetches pipeline/discussions and upserts a single MR into the DB.
 func (e *Engine) syncMRItem(repo *db.Repo, glabMR glab.MRListItem) error {
-	pipelineStatus, err := e.client.GetMRPipeline(repo.GitLabURL, repo.ProjectID, glabMR.IID)
+	detail, err := e.client.GetMRDetail(repo.GitLabURL, repo.ProjectID, glabMR.IID)
 	if err != nil {
-		log.Printf("SyncRepo get pipeline for MR !%d: %v", glabMR.IID, err)
+		log.Printf("SyncRepo get detail for MR !%d: %v", glabMR.IID, err)
 	}
 
 	var ps *string
-	if pipelineStatus != "" {
-		ps = &pipelineStatus
+	if detail.PipelineStatus != "" {
+		ps = &detail.PipelineStatus
 	}
 
 	mr := &db.MergeRequest{
@@ -156,6 +156,7 @@ func (e *Engine) syncMRItem(repo *db.Repo, glabMR glab.MRListItem) error {
 		TargetBranch:   glabMR.TargetBranch,
 		WebURL:         glabMR.WebURL,
 		PipelineStatus: ps,
+		Approved:       detail.Approved,
 		UpdatedAt:      glabMR.UpdatedAt,
 	}
 

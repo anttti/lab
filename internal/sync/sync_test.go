@@ -23,6 +23,7 @@ type mockGlab struct {
 	mrs          []glab.MRListItem
 	discussions  map[int][]glab.Discussion
 	pipelines    map[int]string
+	approvals    map[int]bool
 	fileContents map[string]string // key: "filePath@ref"
 }
 
@@ -34,8 +35,11 @@ func (m *mockGlab) ListDiscussions(repoURL string, projectID int64, mrIID int) (
 	return m.discussions[mrIID], nil
 }
 
-func (m *mockGlab) GetMRPipeline(repoURL string, projectID int64, mrIID int) (string, error) {
-	return m.pipelines[mrIID], nil
+func (m *mockGlab) GetMRDetail(repoURL string, projectID int64, mrIID int) (glab.MRDetail, error) {
+	return glab.MRDetail{
+		PipelineStatus: m.pipelines[mrIID],
+		Approved:       m.approvals[mrIID],
+	}, nil
 }
 
 func (m *mockGlab) GetFileContent(repoURL string, projectID int64, filePath, ref string) (string, error) {

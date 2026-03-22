@@ -123,5 +123,16 @@ CREATE TABLE IF NOT EXISTS thread_reads (
 		}
 	}
 
+	// Add approved column to merge_requests if it doesn't exist.
+	err = db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('merge_requests') WHERE name = 'approved'`).Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		if _, err := db.Exec(`ALTER TABLE merge_requests ADD COLUMN approved BOOLEAN NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }

@@ -47,22 +47,36 @@ func (c *Client) ListDiscussions(repoURL string, projectID int64, mrIID int) ([]
 	return discussions, nil
 }
 
-func (c *Client) GetMRPipeline(repoURL string, projectID int64, mrIID int) (string, error) {
+// MRDetail holds pipeline and approval state from the MR detail endpoint.
+type MRDetail struct {
+	PipelineStatus string
+	Approved       bool
+}
+
+func (c *Client) GetMRDetail(repoURL string, projectID int64, mrIID int) (MRDetail, error) {
 	endpoint := fmt.Sprintf("projects/%d/merge_requests/%d", projectID, mrIID)
 	out, err := exec.Command("glab", "api", endpoint, "-R", repoURL).Output()
 	if err != nil {
-		return "", fmt.Errorf("glab api MR detail: %s", cmdError(err))
+		return MRDetail{}, fmt.Errorf("glab api MR detail: %s", cmdError(err))
 	}
 	var detail struct {
-		HeadPipeline *Pipeline `json:"head_pipeline"`
+		HeadPipeline *Pipeline   `json:"head_pipeline"`
+		ApprovedBy   []approver  `json:"approved_by"`
 	}
 	if err := json.Unmarshal(out, &detail); err != nil {
-		return "", fmt.Errorf("parse MR detail: %w", err)
+		return MRDetail{}, fmt.Errorf("parse MR detail: %w", err)
 	}
-	if detail.HeadPipeline == nil {
-		return "", nil
+	var result MRDetail
+	if detail.HeadPipeline != nil {
+		result.PipelineStatus = detail.HeadPipeline.Status
 	}
-	return detail.HeadPipeline.Status, nil
+	result.Approved = len(detail.ApprovedBy) > 0
+	return result, nil
+}
+
+// approver is a minimal struct for the approved_by array in the MR detail response.
+type approver struct {
+	User Author `json:"user"`
 }
 
 // cmdError extracts stderr from an exec.ExitError, falling back to err.Error().

@@ -40,6 +40,9 @@ var (
 	pipelineRunning = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("214"))
 
+	approvalApproved = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("170"))
+
 	unresolvedStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("214"))
 

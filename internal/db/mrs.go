@@ -18,6 +18,7 @@ type MergeRequest struct {
 	TargetBranch   string     `db:"target_branch"`
 	WebURL         string     `db:"web_url"`
 	PipelineStatus *string    `db:"pipeline_status"`
+	Approved       bool       `db:"approved"`
 	UpdatedAt      time.Time  `db:"updated_at"`
 	SyncedAt       *time.Time `db:"synced_at"`
 }
@@ -35,9 +36,9 @@ func (db *Database) UpsertMR(mr *MergeRequest) error {
 	const q = `
 INSERT INTO merge_requests
     (repo_id, iid, title, author, state, source_branch, target_branch,
-     web_url, pipeline_status, updated_at, synced_at)
+     web_url, pipeline_status, approved, updated_at, synced_at)
 VALUES
-    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 ON CONFLICT(repo_id, iid) DO UPDATE SET
     title           = excluded.title,
     author          = excluded.author,
@@ -46,6 +47,7 @@ ON CONFLICT(repo_id, iid) DO UPDATE SET
     target_branch   = excluded.target_branch,
     web_url         = excluded.web_url,
     pipeline_status = excluded.pipeline_status,
+    approved        = excluded.approved,
     updated_at      = excluded.updated_at,
     synced_at       = datetime('now')
 RETURNING id`
@@ -53,7 +55,7 @@ RETURNING id`
 	row := db.QueryRowx(q,
 		mr.RepoID, mr.IID, mr.Title, mr.Author, mr.State,
 		mr.SourceBranch, mr.TargetBranch, mr.WebURL,
-		mr.PipelineStatus, mr.UpdatedAt,
+		mr.PipelineStatus, mr.Approved, mr.UpdatedAt,
 	)
 	if err := row.Scan(&mr.ID); err != nil {
 		return fmt.Errorf("UpsertMR: %w", err)

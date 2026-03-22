@@ -38,6 +38,14 @@ func (e *Engine) SetOutput(w io.Writer) {
 	e.out = w
 }
 
+// SyncAllWithWriter syncs all repos using the given writer for progress output.
+func (e *Engine) SyncAllWithWriter(w io.Writer) error {
+	old := e.out
+	e.out = w
+	defer func() { e.out = old }()
+	return e.SyncAll()
+}
+
 // SyncAll syncs all repos in the database.
 func (e *Engine) SyncAll() error {
 	repos, err := e.db.ListRepos()
@@ -46,7 +54,7 @@ func (e *Engine) SyncAll() error {
 	}
 	var firstErr error
 	for i := range repos {
-		fmt.Fprintf(e.out, "Syncing %s...\n", repos[i].Name)
+		fmt.Fprintf(e.out, "Syncing %d/%d %s\n", i+1, len(repos), repos[i].Name)
 		if err := e.SyncRepo(&repos[i]); err != nil {
 			log.Printf("sync repo %q: %v", repos[i].Path, err)
 			if firstErr == nil {

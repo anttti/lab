@@ -140,6 +140,15 @@ func (db *Database) GetMRLabels(mrID int64) ([]string, error) {
 	return labels, nil
 }
 
+// AllAuthors returns every distinct author across all MRs, sorted alphabetically.
+func (db *Database) AllAuthors() ([]string, error) {
+	var authors []string
+	if err := db.Select(&authors, `SELECT DISTINCT author FROM merge_requests ORDER BY author`); err != nil {
+		return nil, fmt.Errorf("AllAuthors: %w", err)
+	}
+	return authors, nil
+}
+
 // AllLabels returns every distinct label across all MRs.
 func (db *Database) AllLabels() ([]string, error) {
 	var labels []string

@@ -13,30 +13,32 @@ type filterGroup int
 
 const (
 	filterGroupRepo filterGroup = iota
-	filterGroupUser
+	filterGroupAuthor
 	filterGroupLabels
 )
 
 // filterDataMsg carries data loaded for the filter overlay.
 type filterDataMsg struct {
-	repos        []db.Repo
-	labels       []string
-	selectedRepo string
-	selectedUser string
-	activeLabels map[string]bool
-	err          error
+	repos          []db.Repo
+	authors        []string
+	labels         []string
+	selectedRepo   string
+	selectedAuthor string
+	activeLabels   map[string]bool
+	err            error
 }
 
 // filterModel is the filter overlay sub-model.
 type filterModel struct {
-	db           *db.Database
-	group        filterGroup
-	repos        []db.Repo
-	labels       []string
-	cursor       int
-	selectedRepo string // "" means "All repos"
-	selectedUser string // "" means "All", "me" means "Only me"
-	activeLabels map[string]bool
+	db             *db.Database
+	group          filterGroup
+	repos          []db.Repo
+	authors        []string
+	labels         []string
+	cursor         int
+	selectedRepo   string // "" means "All repos"
+	selectedAuthor string // "" means "All authors"
+	activeLabels   map[string]bool
 }
 
 func newFilterModel(root *Model) filterModel {
@@ -54,13 +56,17 @@ func (m *filterModel) load() tea.Cmd {
 		if err != nil {
 			return filterDataMsg{err: err}
 		}
+		authors, err := database.AllAuthors()
+		if err != nil {
+			return filterDataMsg{err: err}
+		}
 		labels, err := database.AllLabels()
 		if err != nil {
 			return filterDataMsg{err: err}
 		}
 
 		selectedRepo, _ := database.GetConfig("active_repo_filter")
-		selectedUser, _ := database.GetConfig("active_user_filter")
+		selectedAuthor, _ := database.GetConfig("active_author_filter")
 		labelFilter, _ := database.GetConfig("active_label_filters")
 
 		activeLabels := make(map[string]bool)
@@ -74,11 +80,12 @@ func (m *filterModel) load() tea.Cmd {
 		}
 
 		return filterDataMsg{
-			repos:        repos,
-			labels:       labels,
-			selectedRepo: selectedRepo,
-			selectedUser: selectedUser,
-			activeLabels: activeLabels,
+			repos:          repos,
+			authors:        authors,
+			labels:         labels,
+			selectedRepo:   selectedRepo,
+			selectedAuthor: selectedAuthor,
+			activeLabels:   activeLabels,
 		}
 	}
 }
@@ -88,7 +95,7 @@ func (m *filterModel) saveFilters() error {
 	if err := m.db.SetConfig("active_repo_filter", m.selectedRepo); err != nil {
 		return err
 	}
-	if err := m.db.SetConfig("active_user_filter", m.selectedUser); err != nil {
+	if err := m.db.SetConfig("active_author_filter", m.selectedAuthor); err != nil {
 		return err
 	}
 
@@ -110,9 +117,10 @@ func (m *filterModel) repoItems() []string {
 	return items
 }
 
-// userItems returns display labels for the user filter group.
-func (m *filterModel) userItems() []string {
-	return []string{"All", "Only me"}
+// authorItems returns display labels for the author filter group.
+func (m *filterModel) authorItems() []string {
+	items := []string{"All authors"}
+	return append(items, m.authors...)
 }
 
 // labelItems returns display labels for the labels filter group.
@@ -126,8 +134,8 @@ func (m *filterModel) currentGroupLen() int {
 	switch m.group {
 	case filterGroupRepo:
 		return len(m.repoItems())
-	case filterGroupUser:
-		return len(m.userItems())
+	case filterGroupAuthor:
+		return len(m.authorItems())
 	case filterGroupLabels:
 		return len(m.labelItems())
 	}
@@ -140,9 +148,10 @@ func (m *filterModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 	case filterDataMsg:
 		if msg.err == nil {
 			m.repos = msg.repos
+			m.authors = msg.authors
 			m.labels = msg.labels
 			m.selectedRepo = msg.selectedRepo
-			m.selectedUser = msg.selectedUser
+			m.selectedAuthor = msg.selectedAuthor
 			m.activeLabels = msg.activeLabels
 		}
 		return root, nil
@@ -207,13 +216,13 @@ func (m *filterModel) toggleSelection() {
 			}
 		}
 
-	case filterGroupUser:
-		items := m.userItems()
+	case filterGroupAuthor:
+		items := m.authorItems()
 		if m.cursor < len(items) {
 			if m.cursor == 0 {
-				m.selectedUser = ""
+				m.selectedAuthor = ""
 			} else {
-				m.selectedUser = "me"
+				m.selectedAuthor = items[m.cursor]
 			}
 		}
 
@@ -255,26 +264,31 @@ func (m *filterModel) view(root *Model) string {
 			}
 		}
 	}
-	renderList(&sb, repoItems, repoSelected, m.cursor, repoActive)
+	innerW := root.width - 2
+	renderList(&sb, repoItems, repoSelected, m.cursor, repoActive, innerW)
 	sb.WriteString("\n")
 
-	// User group.
-	userActive := m.group == filterGroupUser
-	groupLabel = "  User"
-	if userActive {
-		groupLabel = "◂ User"
+	// Author group.
+	authorActive := m.group == filterGroupAuthor
+	groupLabel = "  Author"
+	if authorActive {
+		groupLabel = "◂ Author"
 	}
 	sb.WriteString(selectedStyle.Render(groupLabel))
 	sb.WriteString("\n")
 
-	userItems := m.userItems()
-	userSelected := make([]bool, len(userItems))
-	if m.selectedUser == "" {
-		userSelected[0] = true
+	authorItems := m.authorItems()
+	authorSelected := make([]bool, len(authorItems))
+	if m.selectedAuthor == "" {
+		authorSelected[0] = true
 	} else {
-		userSelected[1] = true
+		for i, a := range m.authors {
+			if a == m.selectedAuthor {
+				authorSelected[i+1] = true
+			}
+		}
 	}
-	renderList(&sb, userItems, userSelected, m.cursor, userActive)
+	renderList(&sb, authorItems, authorSelected, m.cursor, authorActive, innerW)
 	sb.WriteString("\n")
 
 	// Labels group.
@@ -297,7 +311,7 @@ func (m *filterModel) view(root *Model) string {
 			labelSelected[i+1] = true
 		}
 	}
-	renderList(&sb, labelItems, labelSelected, m.cursor, labelsActive)
+	renderList(&sb, labelItems, labelSelected, m.cursor, labelsActive, innerW)
 
 	title := "Filters"
 	help := "tab/shift-tab: switch group  j/k: navigate  space/enter: toggle  esc: save & back"
@@ -305,15 +319,8 @@ func (m *filterModel) view(root *Model) string {
 }
 
 // renderList renders a selectable list into sb.
-func renderList(b *strings.Builder, items []string, selected []bool, cursor int, isActive bool) {
+func renderList(b *strings.Builder, items []string, selected []bool, cursor int, isActive bool, innerWidth int) {
 	for i, item := range items {
-		var prefix string
-		if isActive && i == cursor {
-			prefix = "▸ "
-		} else {
-			prefix = "  "
-		}
-
 		var selMark string
 		if i < len(selected) && selected[i] {
 			selMark = "● "
@@ -321,9 +328,9 @@ func renderList(b *strings.Builder, items []string, selected []bool, cursor int,
 			selMark = "○ "
 		}
 
-		line := prefix + selMark + item
+		line := "  " + selMark + item
 		if isActive && i == cursor {
-			b.WriteString(selectedStyle.Render(line))
+			b.WriteString(renderSelectedRow(line, innerWidth))
 		} else if i < len(selected) && selected[i] {
 			b.WriteString(resolvedStyle.Render(line))
 		} else {

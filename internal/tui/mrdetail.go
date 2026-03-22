@@ -124,7 +124,7 @@ func (m *mrDetailModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, Keys.Select):
 			if len(m.threads) > 0 {
-				tv, cmd := newThreadModel(root, m.threads, m.cursor, m.mr, m.repoPath)
+				tv, cmd := newThreadModel(root, m.threads, m.cursor, m.mr, m.repoName, m.repoPath)
 				root.thread = tv
 				root.current = viewThread
 				return root, cmd
@@ -155,11 +155,6 @@ func (m *mrDetailModel) view(root *Model) string {
 		sb.WriteString("\n")
 	} else {
 		for i, thread := range m.threads {
-			cursor := "  "
-			if i == m.cursor {
-				cursor = "> "
-			}
-
 			// File location label.
 			location := "General"
 			if thread.FilePath != nil {
@@ -188,7 +183,7 @@ func (m *mrDetailModel) view(root *Model) string {
 			}
 
 			// Build the fixed-width prefix before the preview.
-			prefix := fmt.Sprintf("%-30s  %d notes%s%s  ",
+			prefix := fmt.Sprintf(" %-30s  %d notes%s%s  ",
 				truncate(location, 30),
 				noteCount,
 				resolvedLabel,
@@ -201,8 +196,8 @@ func (m *mrDetailModel) view(root *Model) string {
 				// Strip newlines to keep preview on a single row.
 				body := strings.ReplaceAll(thread.Comments[0].Body, "\n", " ")
 				body = strings.ReplaceAll(body, "\r", "")
-				// 2 for cursor, 2 for panel borders.
-				maxPreview := root.width - 2 - 2 - lipgloss.Width(prefix)
+				// 1 for leading space, 2 for panel borders.
+				maxPreview := root.width - 1 - 2 - lipgloss.Width(prefix)
 				if maxPreview < 0 {
 					maxPreview = 0
 				}
@@ -214,9 +209,9 @@ func (m *mrDetailModel) view(root *Model) string {
 			row := prefix + preview
 
 			if i == m.cursor {
-				sb.WriteString(selectedStyle.Render(cursor+row) + "\n")
+				sb.WriteString(renderSelectedRow(row, root.width-2) + "\n")
 			} else {
-				sb.WriteString(cursor + row + "\n")
+				sb.WriteString(row + "\n")
 			}
 		}
 	}

@@ -15,6 +15,11 @@ var (
 			Foreground(lipgloss.Color("170")).
 			Bold(true)
 
+	// selectedRowStyle highlights the focused list row with a background color (Lazygit-style).
+	selectedRowStyle = lipgloss.NewStyle().
+				Background(lipgloss.Color("24")).
+				Bold(true)
+
 	dimStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240"))
 
@@ -48,8 +53,25 @@ var (
 			Foreground(lipgloss.Color("252"))
 
 	borderColor = lipgloss.Color("246")
-
 )
+
+// selectedBg is the raw ANSI escape for the selection background color.
+const selectedBg = "\x1b[48;5;24m"
+
+// renderSelectedRow renders a row with the selection background spanning the
+// full inner panel width. It replaces any ANSI full-reset sequences inside the
+// row so that nested styled segments (colored indicators etc.) don't break the
+// background.
+func renderSelectedRow(row string, innerWidth int) string {
+	w := lipgloss.Width(row)
+	pad := innerWidth - w
+	if pad > 0 {
+		row += strings.Repeat(" ", pad)
+	}
+	// Re-apply background after every full SGR reset emitted by nested styles.
+	row = strings.ReplaceAll(row, "\x1b[0m", "\x1b[0m"+selectedBg)
+	return selectedBg + "\x1b[1m" + row + "\x1b[0m"
+}
 
 // renderPanel draws a bordered panel with an optional title and help bar,
 // filling the given width and height. The content is placed inside the border

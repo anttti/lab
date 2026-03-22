@@ -13,6 +13,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type threadState int
@@ -38,26 +39,28 @@ func markThreadReadCmd(database *db.Database, mrID int64, discussionID string) t
 
 // threadModel shows the full content of a single thread.
 type threadModel struct {
-	db      *db.Database
-	threads []db.Thread
-	index   int
-	thread  db.Thread
-	mr      db.MergeRequest
-	repo    string
-	scroll  int
-	state   threadState
-	err     string
+	db       *db.Database
+	threads  []db.Thread
+	index    int
+	thread   db.Thread
+	mr       db.MergeRequest
+	repoName string
+	repo     string
+	scroll   int
+	state    threadState
+	err      string
 }
 
-func newThreadModel(root *Model, threads []db.Thread, index int, mr db.MergeRequest, repo string) (threadModel, tea.Cmd) {
+func newThreadModel(root *Model, threads []db.Thread, index int, mr db.MergeRequest, repoName, repo string) (threadModel, tea.Cmd) {
 	m := threadModel{
-		db:      root.db,
-		threads: threads,
-		index:   index,
-		thread:  threads[index],
-		mr:      mr,
-		repo:    repo,
-		state:   threadViewing,
+		db:       root.db,
+		threads:  threads,
+		index:    index,
+		thread:   threads[index],
+		mr:       mr,
+		repoName: repoName,
+		repo:     repo,
+		state:    threadViewing,
 	}
 	return m, markThreadReadCmd(root.db, mr.ID, threads[index].DiscussionID)
 }
@@ -195,6 +198,18 @@ func (m *threadModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 func (m *threadModel) view(root *Model) string {
 	var sb strings.Builder
 
+	// Title area: MR info and repo/branch.
+	mrTitle := titleStyle.Render(fmt.Sprintf("!%d", m.mr.IID)) + " " +
+		lipgloss.NewStyle().Bold(true).Render(m.mr.Title)
+	sb.WriteString(mrTitle)
+	sb.WriteString("\n")
+	repoInfo := dimStyle.Render(m.repoName) + " " +
+		selectedStyle.Render(m.mr.SourceBranch) +
+		dimStyle.Render(" → ") +
+		dimStyle.Render(m.mr.TargetBranch)
+	sb.WriteString(repoInfo)
+	sb.WriteString("\n\n")
+
 	if m.err != "" {
 		sb.WriteString(unresolvedStyle.Render("! " + m.err))
 		sb.WriteString("\n\n")
@@ -211,7 +226,7 @@ func (m *threadModel) view(root *Model) string {
 		sb.WriteString("\n")
 	}
 
-	// Title: file:line or "General".
+	// Panel title: file:line or "General".
 	location := "General"
 	if m.thread.FilePath != nil {
 		location = *m.thread.FilePath
@@ -222,7 +237,7 @@ func (m *threadModel) view(root *Model) string {
 		}
 	}
 
-	title := fmt.Sprintf("Thread %d/%d — %s  (MR !%d: %s)", m.index+1, len(m.threads), location, m.mr.IID, truncate(m.mr.Title, 40))
+	title := fmt.Sprintf("Thread %d/%d — %s", m.index+1, len(m.threads), location)
 
 	var help string
 	if m.state == threadClaudeChoice {
@@ -244,14 +259,14 @@ func buildThreadLines(thread db.Thread, width int) []string {
 
 	var lines []string
 	for _, c := range thread.Comments {
-		// Header: @author (age)
-		header := selectedStyle.Render("@"+c.Author) + " " + dimStyle.Render("("+timeAgo(c.CreatedAt)+")")
+		// Header: @author (age) — one space indent for border alignment.
+		header := " " + selectedStyle.Render("@"+c.Author) + " " + dimStyle.Render("("+timeAgo(c.CreatedAt)+")")
 		lines = append(lines, header)
 
 		// Body, indented and word-wrapped.
 		for _, bodyLine := range strings.Split(c.Body, "\n") {
 			for _, wrapped := range wordWrap(bodyLine, wrapWidth) {
-				lines = append(lines, "  "+wrapped)
+				lines = append(lines, "   "+wrapped)
 			}
 		}
 		lines = append(lines, "")

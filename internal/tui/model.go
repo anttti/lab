@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"time"
 
 	"lab/internal/db"
@@ -24,18 +25,27 @@ type syncTickMsg struct{}
 // bgSyncDoneMsg is sent when the background sync has finished.
 type bgSyncDoneMsg struct{}
 
+// syncProgressMsg carries a progress update from the sync engine.
+type syncProgressMsg string
+
+// fgSyncDoneMsg is sent when a foreground (user-triggered) sync finishes.
+type fgSyncDoneMsg struct{ err error }
+
 // Model is the root TUI model. It routes messages and rendering to the
 // currently active sub-model.
 type Model struct {
-	db       *db.Database
-	sync     *gosync.Engine
-	current  view
-	mrList   mrListModel
-	mrDetail mrDetailModel
-	thread   threadModel
-	filter   filterModel
-	width    int
-	height   int
+	db           *db.Database
+	sync         *gosync.Engine
+	current      view
+	mrList       mrListModel
+	mrDetail     mrDetailModel
+	thread       threadModel
+	filter       filterModel
+	width        int
+	height       int
+	syncing      bool
+	syncStatus   string
+	syncProgress chan string
 }
 
 // NewModel creates a new root Model with the given DB and sync engine.
@@ -69,6 +79,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case syncTickMsg:
+		// Don't start background sync if a foreground sync is in progress.
+		if m.syncing {
+			return m, syncTick()
+		}
 		return m, tea.Batch(
 			func() tea.Msg {
 				m.sync.SyncAll()
@@ -82,6 +96,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.mrList.loadMRs()
 		}
 		return m, nil
+
+	case syncProgressMsg:
+		m.syncStatus = string(msg)
+		return m, waitForProgress(m.syncProgress)
+
+	case fgSyncDoneMsg:
+		m.syncing = false
+		m.syncStatus = ""
+		m.syncProgress = nil
+		return m, m.mrList.loadMRs()
 	}
 
 	switch m.current {
@@ -95,6 +119,58 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.filter.update(msg, m)
 	}
 	return m, nil
+}
+
+// startSync begins a foreground sync and returns commands for both the sync
+// worker and the progress listener.
+func (m *Model) startSync() tea.Cmd {
+	ch := make(chan string, 64)
+	m.syncing = true
+	m.syncStatus = "Starting sync..."
+	m.syncProgress = ch
+	w := &channelWriter{ch: ch}
+	return tea.Batch(
+		func() tea.Msg {
+			m.sync.SyncAllWithWriter(w)
+			close(ch)
+			return fgSyncDoneMsg{}
+		},
+		waitForProgress(ch),
+	)
+}
+
+// waitForProgress returns a command that reads the next progress message
+// from the channel. When the channel is closed it returns a fgSyncDoneMsg
+// so the model can clean up.
+func waitForProgress(ch chan string) tea.Cmd {
+	return func() tea.Msg {
+		for {
+			msg, ok := <-ch
+			if !ok {
+				return fgSyncDoneMsg{}
+			}
+			if msg != "" {
+				return syncProgressMsg(msg)
+			}
+		}
+	}
+}
+
+// channelWriter is an io.Writer that sends each Write as a string to a channel.
+type channelWriter struct {
+	ch chan string
+}
+
+func (w *channelWriter) Write(p []byte) (int, error) {
+	s := strings.TrimSpace(string(p))
+	if s != "" {
+		select {
+		case w.ch <- s:
+		default:
+			// Drop if channel full to avoid blocking sync.
+		}
+	}
+	return len(p), nil
 }
 
 // View delegates rendering to the currently active sub-model.

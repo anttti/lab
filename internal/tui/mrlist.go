@@ -22,6 +22,7 @@ type mrItem struct {
 type mrsLoadedMsg struct {
 	items         []mrItem
 	activeFilters string
+	unreadOnly    bool
 	err           error
 }
 
@@ -30,7 +31,9 @@ type mrListModel struct {
 	db            *db.Database
 	items         []mrItem
 	cursor        int
+	offset        int // first visible item index for scrolling
 	activeFilters string
+	unreadOnly    bool
 }
 
 func newMRListModel(root *Model) mrListModel {
@@ -44,8 +47,9 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 
 		// Read filter config values.
 		repoFilter, _ := database.GetConfig("active_repo_filter")
-		userFilter, _ := database.GetConfig("active_user_filter")
+		authorFilter, _ := database.GetConfig("active_author_filter")
 		labelFilter, _ := database.GetConfig("active_label_filters")
+		unreadFilter, _ := database.GetConfig("active_unread_filter")
 
 		filter := db.MRFilter{}
 
@@ -63,11 +67,8 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 			}
 		}
 
-		if userFilter == "me" {
-			me, _ := database.GetConfig("username")
-			if me != "" {
-				filter.Author = &me
-			}
+		if authorFilter != "" {
+			filter.Author = &authorFilter
 		}
 
 		if labelFilter != "" {
@@ -107,24 +108,52 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 			})
 		}
 
+		// Filter by unread if active.
+		unreadOnly := unreadFilter == "true"
+		if unreadOnly {
+			filtered := items[:0]
+			for _, item := range items {
+				if item.unreadCount > 0 {
+					filtered = append(filtered, item)
+				}
+			}
+			items = filtered
+		}
+
 		// Build a human-readable filter summary.
 		var parts []string
 		if repoFilter != "" {
 			parts = append(parts, "repo:"+repoFilter)
 		}
-		if userFilter != "" {
-			parts = append(parts, "user:"+userFilter)
+		if authorFilter != "" {
+			parts = append(parts, "author:"+authorFilter)
 		}
 		if labelFilter != "" {
 			parts = append(parts, "labels:"+labelFilter)
 		}
+		if unreadOnly {
+			parts = append(parts, "unread")
+		}
 
-		return mrsLoadedMsg{items: items, activeFilters: strings.Join(parts, "  ")}
+		return mrsLoadedMsg{items: items, activeFilters: strings.Join(parts, "  "), unreadOnly: unreadOnly}
 	}
 }
 
-// cycleRepoFilter advances the repo filter to the next option and reloads MRs.
-func (m *mrListModel) cycleRepoFilter() tea.Cmd {
+// toggleUnreadFilter toggles the unread-only filter and reloads MRs.
+func (m *mrListModel) toggleUnreadFilter() tea.Cmd {
+	return func() tea.Msg {
+		current, _ := m.db.GetConfig("active_unread_filter")
+		next := "true"
+		if current == "true" {
+			next = ""
+		}
+		_ = m.db.SetConfig("active_unread_filter", next)
+		return m.loadMRs()()
+	}
+}
+
+// cycleRepoFilter cycles the repo filter by delta (+1 forward, -1 backward) and reloads MRs.
+func (m *mrListModel) cycleRepoFilter(delta int) tea.Cmd {
 	return func() tea.Msg {
 		database := m.db
 		repos, err := database.ListRepos()
@@ -149,7 +178,7 @@ func (m *mrListModel) cycleRepoFilter() tea.Cmd {
 				break
 			}
 		}
-		next := options[(idx+1)%len(options)]
+		next := options[(idx+delta+len(options))%len(options)]
 
 		_ = database.SetConfig("active_repo_filter", next)
 
@@ -165,6 +194,7 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.items = msg.items
 			m.activeFilters = msg.activeFilters
+			m.unreadOnly = msg.unreadOnly
 			if m.cursor >= len(m.items) && len(m.items) > 0 {
 				m.cursor = len(m.items) - 1
 			}
@@ -204,7 +234,13 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, Keys.CycleFilter):
-			return root, m.cycleRepoFilter()
+			return root, m.cycleRepoFilter(1)
+
+		case key.Matches(msg, Keys.CycleFilterBack):
+			return root, m.cycleRepoFilter(-1)
+
+		case key.Matches(msg, Keys.ToggleUnread):
+			return root, m.toggleUnreadFilter()
 
 		case key.Matches(msg, Keys.Filter):
 			filt := newFilterModel(root)
@@ -213,7 +249,9 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 			return root, root.filter.load()
 
 		case key.Matches(msg, Keys.Sync):
-			return root, m.loadMRs()
+			if !root.syncing {
+				return root, root.startSync()
+			}
 		}
 	}
 	return root, nil
@@ -236,19 +274,35 @@ func (m *mrListModel) view(root *Model) string {
 		sb.WriteString("\n")
 	} else {
 		// Calculate dynamic title column width based on terminal width.
-		// Fixed columns: cursor(2) + repo(12) + " !"(2) + IID(4) + " "(1) + unread(1) + " "(1)
-		//   + pipeline(1) + "  "(2) + " @"(2) + author(15) + " "(1) + unresolved(3) + border(2) = 49
-		titleWidth := root.width - 49
+		// Fixed columns: " "(1) + repo(12) + " !"(2) + IID(4) + " "(1) + unread(1) + " "(1)
+		//   + pipeline(1) + "  "(2) + " @"(2) + author(15) + " "(1) + unresolved(3) + border(2) = 48
+		titleWidth := root.width - 48
 		if titleWidth < 20 {
 			titleWidth = 20
 		}
 
-		for i, item := range m.items {
-			cursor := "  "
-			if i == m.cursor {
-				cursor = "> "
-			}
+		// Calculate visible rows: panel border (2) + help bar (1) + filter bar + blank line (2).
+		visibleRows := root.height - 5
+		if visibleRows < 1 {
+			visibleRows = 1
+		}
 
+		// Adjust offset so cursor is always visible.
+		if m.cursor < m.offset {
+			m.offset = m.cursor
+		}
+		if m.cursor >= m.offset+visibleRows {
+			m.offset = m.cursor - visibleRows + 1
+		}
+
+		// Determine visible slice.
+		end := m.offset + visibleRows
+		if end > len(m.items) {
+			end = len(m.items)
+		}
+
+		for i := m.offset; i < end; i++ {
+			item := m.items[i]
 			// Unread indicator (fixed width: 1 visual char).
 			unread := " "
 			if item.unreadCount > 0 {
@@ -266,21 +320,23 @@ func (m *mrListModel) view(root *Model) string {
 
 			// Build the row: repo, MR ID, unread, pipeline, title, author, comment count.
 			title := truncate(item.mr.Title, titleWidth)
-			prefix := fmt.Sprintf("%-12s !%-4d ", truncate(item.repoName, 12), item.mr.IID)
+			prefix := fmt.Sprintf(" %-12s !%-4d ", truncate(item.repoName, 12), item.mr.IID)
 			titleAuthor := fmt.Sprintf("%-*s @%-15s ", titleWidth, title, truncate(item.mr.Author, 15))
 
+			row := prefix + unread + " " + pipeline + "  " + titleAuthor + unresolvedStr
 			if i == m.cursor {
-				row := selectedStyle.Render(cursor+prefix) + unread + " " + pipeline + "  " + selectedStyle.Render(titleAuthor) + unresolvedStr
-				sb.WriteString(row + "\n")
+				sb.WriteString(renderSelectedRow(row, root.width-2) + "\n")
 			} else {
-				row := cursor + prefix + unread + " " + pipeline + "  " + titleAuthor + unresolvedStr
 				sb.WriteString(row + "\n")
 			}
 		}
 	}
 
 	title := titleStyle.Render("lab") + dimStyle.Render(fmt.Sprintf(" — %d MRs", len(m.items)))
-	help := "j/k: navigate  l/enter: select  f: filter  o: cycle project  r: sync  q: quit"
+	help := "j/k: navigate  l/enter: select  f: filter  o: cycle project  u: unread  r: sync  q: quit"
+	if root.syncing && root.syncStatus != "" {
+		help = pipelineRunning.Render("⟳ "+root.syncStatus) + "  " + help
+	}
 	return renderPanel(title, sb.String(), help, root.width, root.height)
 }
 

@@ -7,6 +7,16 @@ import (
 	"lab/internal/db"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/lipgloss"
+)
+
+// filterGroup identifies which filter is being edited.
+type filterGroup int
+
+const (
+	filterGroupRepo filterGroup = iota
+	filterGroupAuthor
+	filterGroupLabels
 )
 
 // mrItem holds display-ready data for a single MR row.
@@ -20,20 +30,38 @@ type mrItem struct {
 
 // mrsLoadedMsg carries the result of an async MR load.
 type mrsLoadedMsg struct {
-	items         []mrItem
-	activeFilters string
-	unreadOnly    bool
-	err           error
+	items          []mrItem
+	unreadOnly     bool
+	err            error
+	repoOptions    []string
+	authorOptions  []string
+	labelOptions   []string
+	selectedRepo   string
+	selectedAuthor string
+	selectedLabel  string
 }
 
 // mrListModel is the home screen listing all MRs.
 type mrListModel struct {
-	db            *db.Database
-	items         []mrItem
-	cursor        int
-	offset        int // first visible item index for scrolling
-	activeFilters string
-	unreadOnly    bool
+	db     *db.Database
+	items  []mrItem
+	cursor int
+	offset int // first visible item index for scrolling
+
+	// Filter selections.
+	selectedRepo   string
+	selectedAuthor string
+	selectedLabel  string
+	unreadOnly     bool
+
+	// Available filter options (loaded from DB).
+	repoOptions   []string
+	authorOptions []string
+	labelOptions  []string
+
+	// Autocomplete state (nil when not active).
+	autocomplete *autocompleteModel
+	activeFilter filterGroup
 }
 
 func newMRListModel(root *Model) mrListModel {
@@ -53,16 +81,14 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 
 		filter := db.MRFilter{}
 
+		repos, _ := database.ListRepos()
+
 		if repoFilter != "" {
-			// Find repo by name.
-			repos, err := database.ListRepos()
-			if err == nil {
-				for _, r := range repos {
-					if r.Name == repoFilter {
-						id := r.ID
-						filter.RepoID = &id
-						break
-					}
+			for _, r := range repos {
+				if r.Name == repoFilter {
+					id := r.ID
+					filter.RepoID = &id
+					break
 				}
 			}
 		}
@@ -86,14 +112,18 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 			return mrsLoadedMsg{err: err}
 		}
 
-		// Build repo name/path maps.
-		repos, _ := database.ListRepos()
+		// Build repo name/path maps and option list.
 		repoNames := make(map[int64]string, len(repos))
 		repoPaths := make(map[int64]string, len(repos))
+		repoOptions := make([]string, 0, len(repos))
 		for _, r := range repos {
 			repoNames[r.ID] = r.Name
 			repoPaths[r.ID] = r.Path
+			repoOptions = append(repoOptions, r.Name)
 		}
+
+		authors, _ := database.AllAuthors()
+		labels, _ := database.AllLabels()
 
 		items := make([]mrItem, 0, len(mrs))
 		for _, mr := range mrs {
@@ -120,22 +150,16 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 			items = filtered
 		}
 
-		// Build a human-readable filter summary.
-		var parts []string
-		if repoFilter != "" {
-			parts = append(parts, "repo:"+repoFilter)
+		return mrsLoadedMsg{
+			items:          items,
+			unreadOnly:     unreadOnly,
+			repoOptions:    repoOptions,
+			authorOptions:  authors,
+			labelOptions:   labels,
+			selectedRepo:   repoFilter,
+			selectedAuthor: authorFilter,
+			selectedLabel:  labelFilter,
 		}
-		if authorFilter != "" {
-			parts = append(parts, "author:"+authorFilter)
-		}
-		if labelFilter != "" {
-			parts = append(parts, "labels:"+labelFilter)
-		}
-		if unreadOnly {
-			parts = append(parts, "unread")
-		}
-
-		return mrsLoadedMsg{items: items, activeFilters: strings.Join(parts, "  "), unreadOnly: unreadOnly}
 	}
 }
 
@@ -152,39 +176,67 @@ func (m *mrListModel) toggleUnreadFilter() tea.Cmd {
 	}
 }
 
-// cycleRepoFilter cycles the repo filter by delta (+1 forward, -1 backward) and reloads MRs.
-func (m *mrListModel) cycleRepoFilter(delta int) tea.Cmd {
+// saveAndReload persists current filter selections and reloads MRs.
+func (m *mrListModel) saveAndReload() tea.Cmd {
 	return func() tea.Msg {
-		database := m.db
-		repos, err := database.ListRepos()
-		if err != nil {
-			return mrsLoadedMsg{err: err}
-		}
-
-		current, _ := database.GetConfig("active_repo_filter")
-
-		// Build option list: "" (all), then each repo name.
-		options := make([]string, 0, len(repos)+1)
-		options = append(options, "")
-		for _, r := range repos {
-			options = append(options, r.Name)
-		}
-
-		// Find current index and advance.
-		idx := 0
-		for i, o := range options {
-			if o == current {
-				idx = i
-				break
-			}
-		}
-		next := options[(idx+delta+len(options))%len(options)]
-
-		_ = database.SetConfig("active_repo_filter", next)
-
-		// Now load MRs with the updated filter (reuse loadMRs logic inline).
+		_ = m.db.SetConfig("active_repo_filter", m.selectedRepo)
+		_ = m.db.SetConfig("active_author_filter", m.selectedAuthor)
+		_ = m.db.SetConfig("active_label_filters", m.selectedLabel)
 		return m.loadMRs()()
 	}
+}
+
+// applySelection updates the filter selection for the given group.
+func (m *mrListModel) applySelection(group filterGroup, value string) {
+	switch group {
+	case filterGroupRepo:
+		if value == "All repos" {
+			m.selectedRepo = ""
+		} else {
+			m.selectedRepo = value
+		}
+	case filterGroupAuthor:
+		if value == "All authors" {
+			m.selectedAuthor = ""
+		} else {
+			m.selectedAuthor = value
+		}
+	case filterGroupLabels:
+		if value == "No filter" {
+			m.selectedLabel = ""
+		} else {
+			m.selectedLabel = value
+		}
+	}
+}
+
+// openAutocomplete starts the autocomplete for the given filter group.
+func (m *mrListModel) openAutocomplete(group filterGroup) {
+	var options []string
+	var current string
+	switch group {
+	case filterGroupRepo:
+		options = append([]string{"All repos"}, m.repoOptions...)
+		current = m.selectedRepo
+		if current == "" {
+			current = "All repos"
+		}
+	case filterGroupAuthor:
+		options = append([]string{"All authors"}, m.authorOptions...)
+		current = m.selectedAuthor
+		if current == "" {
+			current = "All authors"
+		}
+	case filterGroupLabels:
+		options = append([]string{"No filter"}, m.labelOptions...)
+		current = m.selectedLabel
+		if current == "" {
+			current = "No filter"
+		}
+	}
+	ac := newAutocomplete(options, current)
+	m.autocomplete = &ac
+	m.activeFilter = group
 }
 
 // update handles input for the MR list view.
@@ -193,8 +245,13 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 	case mrsLoadedMsg:
 		if msg.err == nil {
 			m.items = msg.items
-			m.activeFilters = msg.activeFilters
 			m.unreadOnly = msg.unreadOnly
+			m.repoOptions = msg.repoOptions
+			m.authorOptions = msg.authorOptions
+			m.labelOptions = msg.labelOptions
+			m.selectedRepo = msg.selectedRepo
+			m.selectedAuthor = msg.selectedAuthor
+			m.selectedLabel = msg.selectedLabel
 			if m.cursor >= len(m.items) && len(m.items) > 0 {
 				m.cursor = len(m.items) - 1
 			}
@@ -202,6 +259,23 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 		return root, nil
 
 	case tea.KeyMsg:
+		// If autocomplete is active, route input to it.
+		if m.autocomplete != nil {
+			if msg.String() == "ctrl+c" {
+				return root, tea.Quit
+			}
+			done, cancelled := m.autocomplete.update(msg)
+			if done {
+				if !cancelled {
+					m.applySelection(m.activeFilter, m.autocomplete.selected())
+					m.autocomplete = nil
+					return root, m.saveAndReload()
+				}
+				m.autocomplete = nil
+			}
+			return root, nil
+		}
+
 		switch {
 		case key.Matches(msg, Keys.Quit):
 			return root, tea.Quit
@@ -233,20 +307,17 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 				return root, root.mrDetail.loadThreads()
 			}
 
-		case key.Matches(msg, Keys.CycleFilter):
-			return root, m.cycleRepoFilter(1)
+		case key.Matches(msg, Keys.FilterRepo):
+			m.openAutocomplete(filterGroupRepo)
 
-		case key.Matches(msg, Keys.CycleFilterBack):
-			return root, m.cycleRepoFilter(-1)
+		case key.Matches(msg, Keys.FilterAuthor):
+			m.openAutocomplete(filterGroupAuthor)
+
+		case key.Matches(msg, Keys.FilterLabel):
+			m.openAutocomplete(filterGroupLabels)
 
 		case key.Matches(msg, Keys.ToggleUnread):
 			return root, m.toggleUnreadFilter()
-
-		case key.Matches(msg, Keys.Filter):
-			filt := newFilterModel(root)
-			root.filter = filt
-			root.current = viewFilter
-			return root, root.filter.load()
 
 		case key.Matches(msg, Keys.Sync):
 			if !root.syncing {
@@ -261,83 +332,186 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 func (m *mrListModel) view(root *Model) string {
 	var sb strings.Builder
 
-	// Filter status bar.
-	if m.activeFilters != "" {
-		sb.WriteString(statusBarStyle.Render("Filters: " + m.activeFilters))
+	// Filter bar (3 boxes + optional unread indicator).
+	sb.WriteString(m.renderFilterBar(root.width - 2))
+	sb.WriteString("\n")
+
+	if m.autocomplete != nil {
+		// Show autocomplete dropdown instead of MR list.
+		acHeight := root.height - 9 // panel border(2) + help(1) + filter bar(5) + blank(1)
+		if acHeight < 3 {
+			acHeight = 3
+		}
+		sb.WriteString(m.autocomplete.view(root.width-2, acHeight))
 	} else {
-		sb.WriteString(statusBarStyle.Render("No filters active"))
-	}
-	sb.WriteString("\n\n")
-
-	if len(m.items) == 0 {
-		sb.WriteString(dimStyle.Render("No merge requests found."))
-		sb.WriteString("\n")
-	} else {
-		// Calculate dynamic title column width based on terminal width.
-		// Fixed columns: " "(1) + repo(12) + " !"(2) + IID(4) + " "(1) + unread(1) + " "(1)
-		//   + pipeline(1) + "  "(2) + " @"(2) + author(15) + " "(1) + unresolved(3) + border(2) = 48
-		titleWidth := root.width - 48
-		if titleWidth < 20 {
-			titleWidth = 20
-		}
-
-		// Calculate visible rows: panel border (2) + help bar (1) + filter bar + blank line (2).
-		visibleRows := root.height - 5
-		if visibleRows < 1 {
-			visibleRows = 1
-		}
-
-		// Adjust offset so cursor is always visible.
-		if m.cursor < m.offset {
-			m.offset = m.cursor
-		}
-		if m.cursor >= m.offset+visibleRows {
-			m.offset = m.cursor - visibleRows + 1
-		}
-
-		// Determine visible slice.
-		end := m.offset + visibleRows
-		if end > len(m.items) {
-			end = len(m.items)
-		}
-
-		for i := m.offset; i < end; i++ {
-			item := m.items[i]
-			// Unread indicator (fixed width: 1 visual char).
-			unread := " "
-			if item.unreadCount > 0 {
-				unread = unreadStyle.Render("●")
+		// Show MR list.
+		if len(m.items) == 0 {
+			sb.WriteString(dimStyle.Render("No merge requests found."))
+			sb.WriteString("\n")
+		} else {
+			titleWidth := root.width - 48
+			if titleWidth < 20 {
+				titleWidth = 20
 			}
 
-			// Pipeline indicator (fixed width: 1 visual char).
-			pipeline := pipelineIndicator(item.mr.PipelineStatus)
-
-			// Unresolved count (fixed width: 3 visual chars, right-aligned).
-			unresolvedStr := "   "
-			if item.unresolvedCount > 0 {
-				unresolvedStr = unresolvedStyle.Render(fmt.Sprintf("%2d↩", item.unresolvedCount))
+			// Filter bar takes 5 lines (4 box lines + 1 blank).
+			visibleRows := root.height - 9
+			if visibleRows < 1 {
+				visibleRows = 1
 			}
 
-			// Build the row: repo, MR ID, unread, pipeline, title, author, comment count.
-			title := truncate(item.mr.Title, titleWidth)
-			prefix := fmt.Sprintf(" %-12s !%-4d ", truncate(item.repoName, 12), item.mr.IID)
-			titleAuthor := fmt.Sprintf("%-*s @%-15s ", titleWidth, title, truncate(item.mr.Author, 15))
+			if m.cursor < m.offset {
+				m.offset = m.cursor
+			}
+			if m.cursor >= m.offset+visibleRows {
+				m.offset = m.cursor - visibleRows + 1
+			}
 
-			row := prefix + unread + " " + pipeline + "  " + titleAuthor + unresolvedStr
-			if i == m.cursor {
-				sb.WriteString(renderSelectedRow(row, root.width-2) + "\n")
-			} else {
-				sb.WriteString(row + "\n")
+			end := m.offset + visibleRows
+			if end > len(m.items) {
+				end = len(m.items)
+			}
+
+			for i := m.offset; i < end; i++ {
+				item := m.items[i]
+				unread := " "
+				if item.unreadCount > 0 {
+					unread = unreadStyle.Render("●")
+				}
+
+				pipeline := pipelineIndicator(item.mr.PipelineStatus)
+
+				unresolvedStr := "   "
+				if item.unresolvedCount > 0 {
+					unresolvedStr = unresolvedStyle.Render(fmt.Sprintf("%2d↩", item.unresolvedCount))
+				}
+
+				title := truncate(item.mr.Title, titleWidth)
+				prefix := fmt.Sprintf(" %-12s !%-4d ", truncate(item.repoName, 12), item.mr.IID)
+				titleAuthor := fmt.Sprintf("%-*s @%-15s ", titleWidth, title, truncate(item.mr.Author, 15))
+
+				row := prefix + unread + " " + pipeline + "  " + titleAuthor + unresolvedStr
+				if i == m.cursor {
+					sb.WriteString(renderSelectedRow(row, root.width-2) + "\n")
+				} else {
+					sb.WriteString(row + "\n")
+				}
 			}
 		}
 	}
 
 	title := titleStyle.Render("lab") + dimStyle.Render(fmt.Sprintf(" — %d MRs", len(m.items)))
-	help := "j/k: navigate  l/enter: select  f: filter  tab: cycle project  u: unread  r: sync  q: quit"
+	var help string
+	if m.autocomplete != nil {
+		help = "type to filter  ↑/↓/ctrl-p/ctrl-n: navigate  enter: select  esc: cancel"
+	} else {
+		help = "j/k: navigate  l/enter: select  f: repo  a: author  d: labels  u: unread  r: sync  q: quit"
+	}
 	if root.syncing && root.syncStatus != "" {
 		help = pipelineRunning.Render("⟳ "+root.syncStatus) + "  " + help
 	}
 	return renderPanel(title, sb.String(), help, root.width, root.height)
+}
+
+// renderFilterBar renders the inline filter boxes.
+func (m *mrListModel) renderFilterBar(innerWidth int) string {
+	boxWidth := (innerWidth - 2) / 3 // 2 gaps of 1 char each
+	if boxWidth < 15 {
+		boxWidth = 15
+	}
+
+	repoVal := "All repos"
+	if m.selectedRepo != "" {
+		repoVal = m.selectedRepo
+	}
+	authorVal := "All authors"
+	if m.selectedAuthor != "" {
+		authorVal = m.selectedAuthor
+	}
+	labelVal := "No filter"
+	if m.selectedLabel != "" {
+		labelVal = m.selectedLabel
+	}
+
+	repoActive := m.autocomplete != nil && m.activeFilter == filterGroupRepo
+	authorActive := m.autocomplete != nil && m.activeFilter == filterGroupAuthor
+	labelActive := m.autocomplete != nil && m.activeFilter == filterGroupLabels
+
+	repoLines := filterBoxLines("Repo", repoVal, "f", boxWidth, repoActive)
+	authorLines := filterBoxLines("Author", authorVal, "a", boxWidth, authorActive)
+	labelLines := filterBoxLines("Labels", labelVal, "d", boxWidth, labelActive)
+
+	// Add unread indicator if active.
+	unreadIndicator := ""
+	if m.unreadOnly {
+		unreadIndicator = " " + unreadStyle.Render("● unread")
+	}
+
+	var sb strings.Builder
+	for i := 0; i < 4; i++ {
+		sb.WriteString(repoLines[i])
+		sb.WriteString(" ")
+		sb.WriteString(authorLines[i])
+		sb.WriteString(" ")
+		sb.WriteString(labelLines[i])
+		if i == 1 {
+			sb.WriteString(unreadIndicator)
+		}
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
+// filterBoxLines returns the 4 lines of a filter box (top border, value, bottom border, hotkey).
+func filterBoxLines(title, value, hotkey string, width int, active bool) [4]string {
+	bc := lipgloss.RoundedBorder()
+	color := borderColor
+	if active {
+		color = lipgloss.Color("170")
+	}
+	bStyle := lipgloss.NewStyle().Foreground(color)
+	tStyle := lipgloss.NewStyle().Foreground(color).Bold(true)
+
+	innerW := width - 2
+	if innerW < 1 {
+		innerW = 1
+	}
+
+	// Line 0: top border with title.
+	titleText := " " + title + " "
+	titleVisualW := lipgloss.Width(titleText)
+	remaining := innerW - 1 - titleVisualW
+	if remaining < 0 {
+		remaining = 0
+	}
+	top := bStyle.Render(bc.TopLeft+bc.Top) + tStyle.Render(titleText) + bStyle.Render(strings.Repeat(bc.Top, remaining)+bc.TopRight)
+
+	// Line 1: value.
+	displayValue := truncate(value, innerW-1)
+	contentW := lipgloss.Width(displayValue) + 1 // +1 for leading space
+	pad := innerW - contentW
+	if pad < 0 {
+		pad = 0
+	}
+	mid := bStyle.Render(bc.Left) + " " + displayValue + strings.Repeat(" ", pad) + bStyle.Render(bc.Right)
+
+	// Line 2: bottom border.
+	bottom := bStyle.Render(bc.BottomLeft + strings.Repeat(bc.Bottom, innerW) + bc.BottomRight)
+
+	// Line 3: hotkey centered.
+	hk := "(" + hotkey + ")"
+	hkLen := len(hk)
+	leftPad := (width - hkLen) / 2
+	if leftPad < 0 {
+		leftPad = 0
+	}
+	rightPad := width - leftPad - hkLen
+	if rightPad < 0 {
+		rightPad = 0
+	}
+	hotkeyLine := strings.Repeat(" ", leftPad) + dimStyle.Render(hk) + strings.Repeat(" ", rightPad)
+
+	return [4]string{top, mid, bottom, hotkeyLine}
 }
 
 // pipelineIndicator returns a styled pipeline status symbol.

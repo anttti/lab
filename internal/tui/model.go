@@ -16,7 +16,6 @@ const (
 	viewMRList view = iota
 	viewMRDetail
 	viewThread
-	viewFilter
 )
 
 // syncTickMsg is sent on a repeating timer to trigger background sync.
@@ -40,7 +39,6 @@ type Model struct {
 	mrList       mrListModel
 	mrDetail     mrDetailModel
 	thread       threadModel
-	filter       filterModel
 	width        int
 	height       int
 	syncing      bool
@@ -115,8 +113,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.mrDetail.update(msg, m)
 	case viewThread:
 		return m.thread.update(msg, m)
-	case viewFilter:
-		return m.filter.update(msg, m)
 	}
 	return m, nil
 }
@@ -182,8 +178,6 @@ func (m *Model) View() string {
 		return m.mrDetail.view(m)
 	case viewThread:
 		return m.thread.view(m)
-	case viewFilter:
-		return m.filter.view(m)
 	}
 	return ""
 }

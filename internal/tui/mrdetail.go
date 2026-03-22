@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"lab/internal/db"
@@ -94,6 +95,9 @@ func (m *mrDetailModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 		}
 		return root, nil
 
+	case openURLMsg:
+		return root, nil
+
 	case syncDoneMsg:
 		m.syncing = false
 		return root, m.loadThreads()
@@ -128,6 +132,17 @@ func (m *mrDetailModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 				root.thread = tv
 				root.current = viewThread
 				return root, cmd
+			}
+
+		case key.Matches(msg, Keys.Web):
+			if len(m.threads) > 0 {
+				thread := m.threads[m.cursor]
+				comments := thread.Comments
+				if len(comments) > 0 {
+					last := comments[len(comments)-1]
+					url := m.mr.WebURL + "#note_" + strconv.Itoa(last.NoteID)
+					return root, openURL(url)
+				}
 			}
 
 		case key.Matches(msg, Keys.Sync):
@@ -217,6 +232,6 @@ func (m *mrDetailModel) view(root *Model) string {
 	}
 
 	title := fmt.Sprintf("%s  !%d  %s", m.repoName, m.mr.IID, truncate(m.mr.Title, 40))
-	help := "j/k: navigate  l/enter: view thread  r: sync  h/b: back  q: quit"
+	help := "j/k: navigate  l/enter: view thread  w: web  r: sync  h/b: back  q: quit"
 	return renderPanel(title, sb.String(), help, root.width, root.height)
 }

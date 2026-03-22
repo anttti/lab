@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,17 @@ const (
 
 // claudeLaunchedMsg is sent after attempting to launch Claude.
 type claudeLaunchedMsg struct{ err error }
+
+// openURLMsg is sent after attempting to open a URL in the browser.
+type openURLMsg struct{ err error }
+
+// openURL returns a command that opens the given URL in the default browser.
+func openURL(url string) tea.Cmd {
+	return func() tea.Msg {
+		err := exec.Command("open", url).Run()
+		return openURLMsg{err: err}
+	}
+}
 
 // threadMarkedReadMsg is sent after marking a thread as read (no-op handler).
 type threadMarkedReadMsg struct{}
@@ -68,6 +80,12 @@ func newThreadModel(root *Model, threads []db.Thread, index int, mr db.MergeRequ
 // update handles input for the thread view.
 func (m *threadModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case openURLMsg:
+		if msg.err != nil {
+			m.err = msg.err.Error()
+		}
+		return root, nil
+
 	case claudeLaunchedMsg:
 		if msg.err != nil {
 			m.err = msg.err.Error()
@@ -104,6 +122,14 @@ func (m *threadModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 					m.thread = m.threads[m.index]
 					m.scroll = 0
 					return root, markThreadReadCmd(m.db, m.mr.ID, m.thread.DiscussionID)
+				}
+
+			case key.Matches(msg, Keys.Web):
+				comments := m.thread.Comments
+				if len(comments) > 0 {
+					last := comments[len(comments)-1]
+					url := m.mr.WebURL + "#note_" + strconv.Itoa(last.NoteID)
+					return root, openURL(url)
 				}
 
 			case key.Matches(msg, Keys.Claude):
@@ -258,7 +284,7 @@ func (m *threadModel) view(root *Model) string {
 	if m.state == threadClaudeChoice {
 		help = "Send as-is (s) or augment in editor (a)? (esc to cancel)"
 	} else {
-		help = "j/k: scroll  n/p: next/prev thread  c: claude  h/b: back  q: quit"
+		help = "j/k: scroll  n/p: next/prev thread  c: claude  w: web  h/b: back  q: quit"
 	}
 
 	return renderPanel(title, sb.String(), help, root.width, root.height)

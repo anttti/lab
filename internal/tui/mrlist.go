@@ -338,7 +338,7 @@ func (m *mrListModel) view(root *Model) string {
 
 	if m.autocomplete != nil {
 		// Show autocomplete dropdown instead of MR list.
-		acHeight := root.height - 9 // panel border(2) + help(1) + filter bar(5) + blank(1)
+		acHeight := root.height - 8 // panel border(2) + help(1) + filter bar(4) + blank(1)
 		if acHeight < 3 {
 			acHeight = 3
 		}
@@ -354,8 +354,8 @@ func (m *mrListModel) view(root *Model) string {
 				titleWidth = 20
 			}
 
-			// Filter bar takes 5 lines (4 box lines + 1 blank).
-			visibleRows := root.height - 9
+			// Filter bar takes 4 lines (3 box lines + 1 blank).
+			visibleRows := root.height - 8
 			if visibleRows < 1 {
 				visibleRows = 1
 			}
@@ -448,7 +448,7 @@ func (m *mrListModel) renderFilterBar(innerWidth int) string {
 	}
 
 	var sb strings.Builder
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 3; i++ {
 		sb.WriteString(repoLines[i])
 		sb.WriteString(" ")
 		sb.WriteString(authorLines[i])
@@ -462,8 +462,8 @@ func (m *mrListModel) renderFilterBar(innerWidth int) string {
 	return sb.String()
 }
 
-// filterBoxLines returns the 4 lines of a filter box (top border, value, bottom border, hotkey).
-func filterBoxLines(title, value, hotkey string, width int, active bool) [4]string {
+// filterBoxLines returns the 3 lines of a filter box (top border with title+hotkey, value, bottom border).
+func filterBoxLines(title, value, hotkey string, width int, active bool) [3]string {
 	bc := lipgloss.RoundedBorder()
 	color := borderColor
 	if active {
@@ -477,8 +477,8 @@ func filterBoxLines(title, value, hotkey string, width int, active bool) [4]stri
 		innerW = 1
 	}
 
-	// Line 0: top border with title.
-	titleText := " " + title + " "
+	// Line 0: top border with title and hotkey.
+	titleText := " " + title + " (" + hotkey + ") "
 	titleVisualW := lipgloss.Width(titleText)
 	remaining := innerW - 1 - titleVisualW
 	if remaining < 0 {
@@ -498,20 +498,7 @@ func filterBoxLines(title, value, hotkey string, width int, active bool) [4]stri
 	// Line 2: bottom border.
 	bottom := bStyle.Render(bc.BottomLeft + strings.Repeat(bc.Bottom, innerW) + bc.BottomRight)
 
-	// Line 3: hotkey centered.
-	hk := "(" + hotkey + ")"
-	hkLen := len(hk)
-	leftPad := (width - hkLen) / 2
-	if leftPad < 0 {
-		leftPad = 0
-	}
-	rightPad := width - leftPad - hkLen
-	if rightPad < 0 {
-		rightPad = 0
-	}
-	hotkeyLine := strings.Repeat(" ", leftPad) + dimStyle.Render(hk) + strings.Repeat(" ", rightPad)
-
-	return [4]string{top, mid, bottom, hotkeyLine}
+	return [3]string{top, mid, bottom}
 }
 
 // pipelineIndicator returns a styled pipeline status symbol.

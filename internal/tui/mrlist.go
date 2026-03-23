@@ -43,6 +43,7 @@ type mrsLoadedMsg struct {
 	selectedLabel  string
 	selectedDraft    string
 	selectedAccepted string
+	authorNegate     bool
 }
 
 // mrListModel is the home screen listing all MRs.
@@ -58,6 +59,7 @@ type mrListModel struct {
 	selectedLabel  string
 	selectedDraft    string // "", "drafts", "ready"
 	selectedAccepted string // "", "accepted", "not_accepted"
+	authorNegate     bool   // true = exclude selected author
 	unreadOnly       bool
 
 	// Available filter options (loaded from DB).
@@ -82,6 +84,7 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 		// Read filter config values.
 		repoFilter, _ := database.GetConfig("active_repo_filter")
 		authorFilter, _ := database.GetConfig("active_author_filter")
+		authorNegateStr, _ := database.GetConfig("active_author_negate")
 		labelFilter, _ := database.GetConfig("active_label_filters")
 		draftFilter, _ := database.GetConfig("active_draft_filter")
 		acceptedFilter, _ := database.GetConfig("active_accepted_filter")
@@ -119,8 +122,12 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 			}
 		}
 
+		authorNegate := authorNegateStr == "true"
 		if authorFilter != "" {
 			filter.Author = &authorFilter
+			filter.AuthorNegate = authorNegate
+		} else {
+			authorNegate = false // clear negation when no author selected
 		}
 
 		if labelFilter != "" {
@@ -184,6 +191,7 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 			labelOptions:   labels,
 			selectedRepo:   repoFilter,
 			selectedAuthor: authorFilter,
+			authorNegate:   authorNegate,
 			selectedLabel:  labelFilter,
 			selectedDraft:    draftFilter,
 			selectedAccepted: acceptedFilter,
@@ -209,6 +217,11 @@ func (m *mrListModel) saveAndReload() tea.Cmd {
 	return func() tea.Msg {
 		_ = m.db.SetConfig("active_repo_filter", m.selectedRepo)
 		_ = m.db.SetConfig("active_author_filter", m.selectedAuthor)
+		negateVal := ""
+		if m.authorNegate {
+			negateVal = "true"
+		}
+		_ = m.db.SetConfig("active_author_negate", negateVal)
 		_ = m.db.SetConfig("active_label_filters", m.selectedLabel)
 		_ = m.db.SetConfig("active_draft_filter", m.selectedDraft)
 		_ = m.db.SetConfig("active_accepted_filter", m.selectedAccepted)
@@ -228,6 +241,7 @@ func (m *mrListModel) applySelection(group filterGroup, value string) {
 	case filterGroupAuthor:
 		if value == "All authors" {
 			m.selectedAuthor = ""
+			m.authorNegate = false
 		} else {
 			m.selectedAuthor = value
 		}
@@ -273,6 +287,30 @@ func (m *mrListModel) cycleFilter(group filterGroup, delta int) {
 		options = m.authorOptions
 		current = m.selectedAuthor
 		allLabel = "All authors"
+	case filterGroupDraft:
+		states := []string{"", "drafts", "ready"}
+		idx := 0
+		for i, s := range states {
+			if s == m.selectedDraft {
+				idx = i
+				break
+			}
+		}
+		idx = (idx + delta + len(states)) % len(states)
+		m.selectedDraft = states[idx]
+		return
+	case filterGroupAccepted:
+		states := []string{"", "accepted", "not_accepted"}
+		idx := 0
+		for i, s := range states {
+			if s == m.selectedAccepted {
+				idx = i
+				break
+			}
+		}
+		idx = (idx + delta + len(states)) % len(states)
+		m.selectedAccepted = states[idx]
+		return
 	default:
 		return
 	}
@@ -295,6 +333,9 @@ func (m *mrListModel) cycleFilter(group filterGroup, delta int) {
 	value := full[idx]
 	if value == "" {
 		value = allLabel
+		if group == filterGroupAuthor {
+			m.authorNegate = false
+		}
 	}
 	m.applySelection(group, value)
 }
@@ -360,6 +401,7 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 			m.labelOptions = msg.labelOptions
 			m.selectedRepo = msg.selectedRepo
 			m.selectedAuthor = msg.selectedAuthor
+			m.authorNegate = msg.authorNegate
 			m.selectedLabel = msg.selectedLabel
 			m.selectedDraft = msg.selectedDraft
 			m.selectedAccepted = msg.selectedAccepted
@@ -428,10 +470,12 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 			m.openAutocomplete(filterGroupLabels)
 
 		case key.Matches(msg, Keys.FilterDraft):
-			m.openAutocomplete(filterGroupDraft)
+			m.cycleFilter(filterGroupDraft, 1)
+			return root, m.saveAndReload()
 
 		case key.Matches(msg, Keys.FilterAccepted):
-			m.openAutocomplete(filterGroupAccepted)
+			m.cycleFilter(filterGroupAccepted, 1)
+			return root, m.saveAndReload()
 
 		case key.Matches(msg, Keys.CycleRepoNext):
 			m.cycleFilter(filterGroupRepo, 1)
@@ -448,6 +492,12 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, Keys.CycleAuthorPrev):
 			m.cycleFilter(filterGroupAuthor, -1)
 			return root, m.saveAndReload()
+
+		case key.Matches(msg, Keys.ToggleAuthorNegate):
+			if m.selectedAuthor != "" {
+				m.authorNegate = !m.authorNegate
+				return root, m.saveAndReload()
+			}
 
 		case key.Matches(msg, Keys.ToggleUnread):
 			return root, m.toggleUnreadFilter()
@@ -589,7 +639,11 @@ func (m *mrListModel) renderFilterBar(innerWidth int) string {
 	acceptedActive := m.autocomplete != nil && m.activeFilter == filterGroupAccepted
 
 	repoLines := filterBoxLines("Repo", repoVal, "r", boxWidth, repoActive)
-	authorLines := filterBoxLines("Author", authorVal, "a", boxWidth, authorActive)
+	authorTitle := "Author"
+	if m.authorNegate {
+		authorTitle = "!Author"
+	}
+	authorLines := filterBoxLines(authorTitle, authorVal, "a", boxWidth, authorActive)
 	labelLines := filterBoxLines("Labels", labelVal, "L", boxWidth, labelActive)
 	draftLines := filterBoxLines("Draft", draftVal, "d", narrowBoxWidth, draftActive)
 	acceptedLines := filterBoxLines("Acc.", acceptedVal, "c", narrowBoxWidth, acceptedActive)

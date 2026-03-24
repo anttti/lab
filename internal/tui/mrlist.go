@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"lab/internal/db"
 	tea "github.com/charmbracelet/bubbletea"
@@ -70,6 +71,12 @@ type mrListModel struct {
 	// Autocomplete state (nil when not active).
 	autocomplete *autocompleteModel
 	activeFilter filterGroup
+
+	// Transient flash message.
+	flash string
+
+	// Save mode: waiting for slot number input.
+	saveMode bool
 }
 
 func newMRListModel(root *Model) mrListModel {
@@ -225,6 +232,48 @@ func (m *mrListModel) saveAndReload() tea.Cmd {
 		_ = m.db.SetConfig("active_label_filters", m.selectedLabel)
 		_ = m.db.SetConfig("active_draft_filter", m.selectedDraft)
 		_ = m.db.SetConfig("active_accepted_filter", m.selectedAccepted)
+		return m.loadMRs()()
+	}
+}
+
+// filterConfigKeys lists the config keys that make up the complete filter state.
+var filterConfigKeys = []string{
+	"active_repo_filter",
+	"active_author_filter",
+	"active_author_negate",
+	"active_label_filters",
+	"active_draft_filter",
+	"active_accepted_filter",
+	"active_unread_filter",
+}
+
+// saveFavorite saves current filter state to the given slot (1-9).
+func (m *mrListModel) saveFavorite(slot int) tea.Cmd {
+	return func() tea.Msg {
+		prefix := fmt.Sprintf("favorite_%d_", slot)
+		for _, k := range filterConfigKeys {
+			val, _ := m.db.GetConfig(k)
+			// Strip "active_" prefix and prepend favorite prefix.
+			suffix := strings.TrimPrefix(k, "active_")
+			_ = m.db.SetConfig(prefix+suffix, val)
+		}
+		return flashMsg{text: fmt.Sprintf("Favorite %d saved", slot)}
+	}
+}
+
+// recallFavorite restores filter state from the given slot (1-9).
+func (m *mrListModel) recallFavorite(slot int) tea.Cmd {
+	return func() tea.Msg {
+		prefix := fmt.Sprintf("favorite_%d_", slot)
+		saved, err := m.db.GetConfigByPrefix(prefix)
+		if err != nil || len(saved) == 0 {
+			return flashMsg{text: fmt.Sprintf("Favorite %d is empty", slot)}
+		}
+		for _, k := range filterConfigKeys {
+			suffix := strings.TrimPrefix(k, "active_")
+			val := saved[prefix+suffix]
+			_ = m.db.SetConfig(k, val)
+		}
 		return m.loadMRs()()
 	}
 }
@@ -392,6 +441,16 @@ func (m *mrListModel) openAutocomplete(group filterGroup) {
 // update handles input for the MR list view.
 func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case flashMsg:
+		m.flash = msg.text
+		return root, tea.Tick(2*time.Second, func(time.Time) tea.Msg {
+			return clearFlashMsg{}
+		})
+
+	case clearFlashMsg:
+		m.flash = ""
+		return root, nil
+
 	case mrsLoadedMsg:
 		if msg.err == nil {
 			m.items = msg.items
@@ -427,6 +486,24 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 				m.autocomplete = nil
 			}
 			return root, nil
+		}
+
+		// Save mode: waiting for slot number.
+		if m.saveMode {
+			m.saveMode = false
+			m.flash = ""
+			if k := msg.String(); len(k) == 1 && k[0] >= '1' && k[0] <= '9' {
+				slot := int(k[0] - '0')
+				return root, m.saveFavorite(slot)
+			}
+			// Any other key cancels save mode.
+			return root, nil
+		}
+
+		// Recall favorite (1..9).
+		if k := msg.String(); len(k) == 1 && k[0] >= '1' && k[0] <= '9' {
+			slot := int(k[0] - '0')
+			return root, m.recallFavorite(slot)
 		}
 
 		switch {
@@ -506,6 +583,11 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 			if !root.syncing {
 				return root, root.startSync()
 			}
+
+		case msg.String() == "s":
+			m.saveMode = true
+			m.flash = "Save to slot 1-9..."
+			return root, nil
 		}
 	}
 	return root, nil
@@ -588,9 +670,11 @@ func (m *mrListModel) view(root *Model) string {
 	if m.autocomplete != nil {
 		help = "type to filter  ↑/↓/ctrl-p/ctrl-n: navigate  enter: select  esc: cancel"
 	} else {
-		help = "j/k: navigate  l/enter: select  r: repo  a: author  L: labels  d: draft  c: accepted  u: unread  R: sync  q: quit"
+		help = "j/k: navigate  l/enter: select  r: repo  a: author  L: labels  d: draft  c: accepted  u: unread  1-9/s: presets  R: sync  q: quit"
 	}
-	if root.syncing && root.syncStatus != "" {
+	if m.flash != "" {
+		help = pipelineRunning.Render("★ "+m.flash) + "  " + help
+	} else if root.syncing && root.syncStatus != "" {
 		help = pipelineRunning.Render("⟳ "+root.syncStatus) + "  " + help
 	}
 	return renderPanel(title, sb.String(), help, root.width, root.height)

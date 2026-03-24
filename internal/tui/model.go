@@ -30,6 +30,12 @@ type syncProgressMsg string
 // fgSyncDoneMsg is sent when a foreground (user-triggered) sync finishes.
 type fgSyncDoneMsg struct{ err error }
 
+// flashMsg carries a transient message to display in the help bar.
+type flashMsg struct{ text string }
+
+// clearFlashMsg signals that the flash message should be cleared.
+type clearFlashMsg struct{}
+
 // Model is the root TUI model. It routes messages and rendering to the
 // currently active sub-model.
 type Model struct {

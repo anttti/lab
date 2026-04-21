@@ -64,7 +64,6 @@ func (c *Client) GetMRDetail(repoURL string, projectID int64, mrIID int) (MRDeta
 	}
 	var detail struct {
 		HeadPipeline *Pipeline  `json:"head_pipeline"`
-		ApprovedBy   []approver `json:"approved_by"`
 		State        string     `json:"state"`
 		Reviewers    []Reviewer `json:"reviewers"`
 	}
@@ -75,15 +74,25 @@ func (c *Client) GetMRDetail(repoURL string, projectID int64, mrIID int) (MRDeta
 	if detail.HeadPipeline != nil {
 		result.PipelineStatus = detail.HeadPipeline.Status
 	}
-	result.Approved = len(detail.ApprovedBy) > 0
 	result.State = detail.State
 	result.Reviewers = detail.Reviewers
-	return result, nil
-}
 
-// approver is a minimal struct for the approved_by array in the MR detail response.
-type approver struct {
-	User Author `json:"user"`
+	// Use the dedicated approvals endpoint which reliably returns approval status.
+	approvalsEndpoint := fmt.Sprintf("projects/%d/merge_requests/%d/approvals", projectID, mrIID)
+	appOut, err := exec.Command("glab", "api", approvalsEndpoint, "-R", repoURL).Output()
+	if err != nil {
+		// Non-fatal: log but continue with approved=false.
+		result.Approved = false
+	} else {
+		var approvals struct {
+			Approved bool `json:"approved"`
+		}
+		if err := json.Unmarshal(appOut, &approvals); err == nil {
+			result.Approved = approvals.Approved
+		}
+	}
+
+	return result, nil
 }
 
 // cmdError extracts stderr from an exec.ExitError, falling back to err.Error().

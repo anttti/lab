@@ -21,7 +21,7 @@ var (
 				Bold(true)
 
 	dimStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240"))
+			Foreground(lipgloss.Color("245"))
 
 	statusBarStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("248")).

@@ -158,6 +158,49 @@ func TestListMRs_FilterByLabels(t *testing.T) {
 	}
 }
 
+func TestListMRs_FilterByReviewer(t *testing.T) {
+	db := testDB(t)
+	repo := insertTestRepo(t, db)
+
+	mr1 := baseMR(repo.ID, 1) // alice reviews
+	mr2 := baseMR(repo.ID, 2) // bob reviews
+	mr3 := baseMR(repo.ID, 3) // unassigned
+	_ = db.UpsertMR(mr1)
+	_ = db.UpsertMR(mr2)
+	_ = db.UpsertMR(mr3)
+	_ = db.SetMRReviewers(mr1.ID, []Reviewer{{Username: "alice"}})
+	_ = db.SetMRReviewers(mr2.ID, []Reviewer{{Username: "bob"}})
+
+	// Filter by specific reviewer.
+	name := "alice"
+	mrs, err := db.ListMRs(MRFilter{Reviewer: &name})
+	if err != nil {
+		t.Fatalf("ListMRs reviewer=alice: %v", err)
+	}
+	if len(mrs) != 1 || mrs[0].ID != mr1.ID {
+		t.Errorf("expected 1 MR reviewed by alice, got %d", len(mrs))
+	}
+
+	// Filter by unassigned (empty string sentinel).
+	empty := ""
+	mrs, err = db.ListMRs(MRFilter{Reviewer: &empty})
+	if err != nil {
+		t.Fatalf("ListMRs reviewer=unassigned: %v", err)
+	}
+	if len(mrs) != 1 || mrs[0].ID != mr3.ID {
+		t.Errorf("expected 1 unassigned MR, got %d", len(mrs))
+	}
+
+	// AllReviewers enumerates distinct reviewers.
+	all, err := db.AllReviewers()
+	if err != nil {
+		t.Fatalf("AllReviewers: %v", err)
+	}
+	if len(all) != 2 {
+		t.Errorf("expected 2 distinct reviewers, got %d: %v", len(all), all)
+	}
+}
+
 func TestAllLabels(t *testing.T) {
 	db := testDB(t)
 	repo := insertTestRepo(t, db)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"lab/internal/db"
 	tea "github.com/charmbracelet/bubbletea"
@@ -17,35 +18,50 @@ type filterGroup int
 const (
 	filterGroupRepo filterGroup = iota
 	filterGroupAuthor
+	filterGroupReviewer
 	filterGroupLabels
 	filterGroupDraft
 	filterGroupAccepted
 )
+
+// reviewerUnassignedLabel is the sentinel used in the reviewer autocomplete
+// to represent MRs that have no reviewer assigned.
+const reviewerUnassignedLabel = "— Unassigned —"
+
+// reviewerAllLabel is the sentinel used to clear the reviewer filter.
+const reviewerAllLabel = "All reviewers"
 
 // mrItem holds display-ready data for a single MR row.
 type mrItem struct {
 	mr              db.MergeRequest
 	repoName        string
 	repoPath        string
+	reviewers       []string
 	unresolvedCount int
 	unreadCount     int
 }
 
 // mrsLoadedMsg carries the result of an async MR load.
 type mrsLoadedMsg struct {
-	items          []mrItem
-	unreadOnly     bool
-	err            error
-	repoOptions    []string
-	authorOptions  []string
-	labelOptions   []string
-	selectedRepo   string
-	selectedAuthor string
-	selectedLabel  string
+	items            []mrItem
+	unreadOnly       bool
+	err              error
+	repoOptions      []string
+	authorOptions    []string
+	reviewerOptions  []string
+	labelOptions     []string
+	selectedRepo     string
+	selectedAuthor   string
+	selectedReviewer string // "" = no filter, "__unassigned__" = unassigned, else username
+	selectedLabel    string
 	selectedDraft    string
 	selectedAccepted string
 	authorNegate     bool
 }
+
+// reviewerUnassignedSentinel is the value stored in config / model state to
+// represent "MRs with no reviewer" (since an empty string means no filter).
+const reviewerUnassignedSentinel = "__unassigned__"
 
 // mrListModel is the home screen listing all MRs.
 type mrListModel struct {
@@ -55,18 +71,20 @@ type mrListModel struct {
 	offset int // first visible item index for scrolling
 
 	// Filter selections.
-	selectedRepo   string
-	selectedAuthor string
-	selectedLabel  string
+	selectedRepo     string
+	selectedAuthor   string
+	selectedReviewer string // "" = none, reviewerUnassignedSentinel = unassigned, else username
+	selectedLabel    string
 	selectedDraft    string // "", "drafts", "ready"
 	selectedAccepted string // "", "accepted", "not_accepted"
 	authorNegate     bool   // true = exclude selected author
 	unreadOnly       bool
 
 	// Available filter options (loaded from DB).
-	repoOptions   []string
-	authorOptions []string
-	labelOptions  []string
+	repoOptions     []string
+	authorOptions   []string
+	reviewerOptions []string
+	labelOptions    []string
 
 	// Autocomplete state (nil when not active).
 	autocomplete *autocompleteModel
@@ -92,6 +110,7 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 		repoFilter, _ := database.GetConfig("active_repo_filter")
 		authorFilter, _ := database.GetConfig("active_author_filter")
 		authorNegateStr, _ := database.GetConfig("active_author_negate")
+		reviewerFilter, _ := database.GetConfig("active_reviewer_filter")
 		labelFilter, _ := database.GetConfig("active_label_filters")
 		draftFilter, _ := database.GetConfig("active_draft_filter")
 		acceptedFilter, _ := database.GetConfig("active_accepted_filter")
@@ -137,6 +156,17 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 			authorNegate = false // clear negation when no author selected
 		}
 
+		switch reviewerFilter {
+		case "":
+			// no filter
+		case reviewerUnassignedSentinel:
+			empty := ""
+			filter.Reviewer = &empty
+		default:
+			r := reviewerFilter
+			filter.Reviewer = &r
+		}
+
 		if labelFilter != "" {
 			parts := strings.Split(labelFilter, ",")
 			for _, p := range parts {
@@ -163,16 +193,23 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 		}
 
 		authors, _ := database.AllAuthors()
+		reviewers, _ := database.AllReviewers()
 		labels, _ := database.AllLabels()
 
 		items := make([]mrItem, 0, len(mrs))
 		for _, mr := range mrs {
 			unresolved, _ := database.UnresolvedCommentCount(mr.ID)
 			unread, _ := database.UnreadThreadCount(mr.ID)
+			mrReviewers, _ := database.GetMRReviewers(mr.ID)
+			reviewerNames := make([]string, len(mrReviewers))
+			for i, r := range mrReviewers {
+				reviewerNames[i] = r.Username
+			}
 			items = append(items, mrItem{
 				mr:              mr,
 				repoName:        repoNames[mr.RepoID],
 				repoPath:        repoPaths[mr.RepoID],
+				reviewers:       reviewerNames,
 				unresolvedCount: unresolved,
 				unreadCount:     unread,
 			})
@@ -191,15 +228,17 @@ func (m *mrListModel) loadMRs() tea.Cmd {
 		}
 
 		return mrsLoadedMsg{
-			items:          items,
-			unreadOnly:     unreadOnly,
-			repoOptions:    repoOptions,
-			authorOptions:  authors,
-			labelOptions:   labels,
-			selectedRepo:   repoFilter,
-			selectedAuthor: authorFilter,
-			authorNegate:   authorNegate,
-			selectedLabel:  labelFilter,
+			items:            items,
+			unreadOnly:       unreadOnly,
+			repoOptions:      repoOptions,
+			authorOptions:    authors,
+			reviewerOptions:  reviewers,
+			labelOptions:     labels,
+			selectedRepo:     repoFilter,
+			selectedAuthor:   authorFilter,
+			authorNegate:     authorNegate,
+			selectedReviewer: reviewerFilter,
+			selectedLabel:    labelFilter,
 			selectedDraft:    draftFilter,
 			selectedAccepted: acceptedFilter,
 		}
@@ -229,6 +268,7 @@ func (m *mrListModel) saveAndReload() tea.Cmd {
 			negateVal = "true"
 		}
 		_ = m.db.SetConfig("active_author_negate", negateVal)
+		_ = m.db.SetConfig("active_reviewer_filter", m.selectedReviewer)
 		_ = m.db.SetConfig("active_label_filters", m.selectedLabel)
 		_ = m.db.SetConfig("active_draft_filter", m.selectedDraft)
 		_ = m.db.SetConfig("active_accepted_filter", m.selectedAccepted)
@@ -241,6 +281,7 @@ var filterConfigKeys = []string{
 	"active_repo_filter",
 	"active_author_filter",
 	"active_author_negate",
+	"active_reviewer_filter",
 	"active_label_filters",
 	"active_draft_filter",
 	"active_accepted_filter",
@@ -293,6 +334,15 @@ func (m *mrListModel) applySelection(group filterGroup, value string) {
 			m.authorNegate = false
 		} else {
 			m.selectedAuthor = value
+		}
+	case filterGroupReviewer:
+		switch value {
+		case reviewerAllLabel:
+			m.selectedReviewer = ""
+		case reviewerUnassignedLabel:
+			m.selectedReviewer = reviewerUnassignedSentinel
+		default:
+			m.selectedReviewer = value
 		}
 	case filterGroupLabels:
 		if value == "No filter" {
@@ -406,6 +456,16 @@ func (m *mrListModel) openAutocomplete(group filterGroup) {
 		if current == "" {
 			current = "All authors"
 		}
+	case filterGroupReviewer:
+		options = append([]string{reviewerAllLabel, reviewerUnassignedLabel}, m.reviewerOptions...)
+		switch m.selectedReviewer {
+		case "":
+			current = reviewerAllLabel
+		case reviewerUnassignedSentinel:
+			current = reviewerUnassignedLabel
+		default:
+			current = m.selectedReviewer
+		}
 	case filterGroupLabels:
 		options = append([]string{"No filter"}, m.labelOptions...)
 		current = m.selectedLabel
@@ -457,10 +517,12 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 			m.unreadOnly = msg.unreadOnly
 			m.repoOptions = msg.repoOptions
 			m.authorOptions = msg.authorOptions
+			m.reviewerOptions = msg.reviewerOptions
 			m.labelOptions = msg.labelOptions
 			m.selectedRepo = msg.selectedRepo
 			m.selectedAuthor = msg.selectedAuthor
 			m.authorNegate = msg.authorNegate
+			m.selectedReviewer = msg.selectedReviewer
 			m.selectedLabel = msg.selectedLabel
 			m.selectedDraft = msg.selectedDraft
 			m.selectedAccepted = msg.selectedAccepted
@@ -543,6 +605,9 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, Keys.FilterAuthor):
 			m.openAutocomplete(filterGroupAuthor)
 
+		case key.Matches(msg, Keys.FilterReviewer):
+			m.openAutocomplete(filterGroupReviewer)
+
 		case key.Matches(msg, Keys.FilterLabel):
 			m.openAutocomplete(filterGroupLabels)
 
@@ -571,10 +636,13 @@ func (m *mrListModel) update(msg tea.Msg, root *Model) (tea.Model, tea.Cmd) {
 			return root, m.saveAndReload()
 
 		case key.Matches(msg, Keys.ToggleAuthorNegate):
-			if m.selectedAuthor != "" {
-				m.authorNegate = !m.authorNegate
-				return root, m.saveAndReload()
+			if m.selectedAuthor == "" {
+				return root, func() tea.Msg {
+					return flashMsg{text: "Select an author first (a) to negate"}
+				}
 			}
+			m.authorNegate = !m.authorNegate
+			return root, m.saveAndReload()
 
 		case key.Matches(msg, Keys.ToggleUnread):
 			return root, m.toggleUnreadFilter()
@@ -613,7 +681,7 @@ func (m *mrListModel) view(root *Model) string {
 			sb.WriteString(dimStyle.Render("No merge requests found."))
 			sb.WriteString("\n")
 		} else {
-			titleWidth := root.width - 52
+			titleWidth := root.width - 60
 			if titleWidth < 20 {
 				titleWidth = 20
 			}
@@ -653,9 +721,10 @@ func (m *mrListModel) view(root *Model) string {
 
 				title := truncate(item.mr.Title, titleWidth)
 				prefix := fmt.Sprintf(" %-12s !%-4d ", truncate(item.repoName, 12), item.mr.IID)
-				titleAuthor := fmt.Sprintf("%-*s @%-15s ", titleWidth, title, truncate(item.mr.Author, 15))
+				titleAuthor := fmt.Sprintf("%-*s @%-12s → ", titleWidth, title, truncate(item.mr.Author, 12))
+				reviewerCell := formatReviewerCell(item.reviewers, 5)
 
-				row := prefix + unread + " " + approval + " " + pipeline + "  " + titleAuthor + unresolvedStr
+				row := prefix + unread + " " + approval + " " + pipeline + "  " + titleAuthor + reviewerCell + " " + unresolvedStr
 				if i == m.cursor {
 					sb.WriteString(renderSelectedRow(row, root.width-2) + "\n")
 				} else {
@@ -670,7 +739,7 @@ func (m *mrListModel) view(root *Model) string {
 	if m.autocomplete != nil {
 		help = "type to filter  ↑/↓/ctrl-p/ctrl-n: navigate  enter: select  esc: cancel"
 	} else {
-		help = "j/k: navigate  l/enter: select  r: repo  a: author  L: labels  d: draft  c: accepted  u: unread  1-9/s: presets  R: sync  q: quit"
+		help = "j/k: navigate  l/enter: select  r: repo  a: author  v: reviewer  L: labels  d: draft  c: accepted  u: unread  1-9/s: presets  R: sync  ?: help  q: quit"
 	}
 	if m.flash != "" {
 		help = pipelineRunning.Render("★ "+m.flash) + "  " + help
@@ -682,11 +751,11 @@ func (m *mrListModel) view(root *Model) string {
 
 // renderFilterBar renders the inline filter boxes.
 func (m *mrListModel) renderFilterBar(innerWidth int) string {
-	narrowBoxWidth := 14 // narrow box for draft and accepted filters
-	remainingWidth := innerWidth - narrowBoxWidth*2 - 4 // 4 gaps of 1 char each
-	boxWidth := remainingWidth / 3
-	if boxWidth < 15 {
-		boxWidth = 15
+	narrowBoxWidth := 14                                // narrow box for draft and accepted filters
+	remainingWidth := innerWidth - narrowBoxWidth*2 - 5 // 4 wide + 2 narrow = 6 boxes, 5 gaps
+	boxWidth := remainingWidth / 4
+	if boxWidth < 14 {
+		boxWidth = 14
 	}
 
 	repoVal := "All repos"
@@ -696,6 +765,15 @@ func (m *mrListModel) renderFilterBar(innerWidth int) string {
 	authorVal := "All authors"
 	if m.selectedAuthor != "" {
 		authorVal = m.selectedAuthor
+	}
+	reviewerVal := "All"
+	switch m.selectedReviewer {
+	case "":
+		reviewerVal = "All"
+	case reviewerUnassignedSentinel:
+		reviewerVal = "— Unassigned"
+	default:
+		reviewerVal = m.selectedReviewer
 	}
 	labelVal := "No filter"
 	if m.selectedLabel != "" {
@@ -718,6 +796,7 @@ func (m *mrListModel) renderFilterBar(innerWidth int) string {
 
 	repoActive := m.autocomplete != nil && m.activeFilter == filterGroupRepo
 	authorActive := m.autocomplete != nil && m.activeFilter == filterGroupAuthor
+	reviewerActive := m.autocomplete != nil && m.activeFilter == filterGroupReviewer
 	labelActive := m.autocomplete != nil && m.activeFilter == filterGroupLabels
 	draftActive := m.autocomplete != nil && m.activeFilter == filterGroupDraft
 	acceptedActive := m.autocomplete != nil && m.activeFilter == filterGroupAccepted
@@ -728,6 +807,7 @@ func (m *mrListModel) renderFilterBar(innerWidth int) string {
 		authorTitle = "!Author"
 	}
 	authorLines := filterBoxLines(authorTitle, authorVal, "a", boxWidth, authorActive)
+	reviewerLines := filterBoxLines("Reviewer", reviewerVal, "v", boxWidth, reviewerActive)
 	labelLines := filterBoxLines("Labels", labelVal, "L", boxWidth, labelActive)
 	draftLines := filterBoxLines("Draft", draftVal, "d", narrowBoxWidth, draftActive)
 	acceptedLines := filterBoxLines("Acc.", acceptedVal, "c", narrowBoxWidth, acceptedActive)
@@ -743,6 +823,8 @@ func (m *mrListModel) renderFilterBar(innerWidth int) string {
 		sb.WriteString(repoLines[i])
 		sb.WriteString(" ")
 		sb.WriteString(authorLines[i])
+		sb.WriteString(" ")
+		sb.WriteString(reviewerLines[i])
 		sb.WriteString(" ")
 		sb.WriteString(labelLines[i])
 		sb.WriteString(" ")
@@ -819,6 +901,69 @@ func pipelineIndicator(status *string) string {
 	default:
 		return dimStyle.Render("—")
 	}
+}
+
+// formatReviewerCell renders the reviewer column for an MR row, padded to
+// visibleWidth visible columns. No reviewers shows a dim em-dash; otherwise
+// the first reviewer's initials (with "+N" dim suffix for additional
+// reviewers).
+func formatReviewerCell(reviewers []string, visibleWidth int) string {
+	var raw, styled string
+	switch len(reviewers) {
+	case 0:
+		raw = "—"
+		styled = dimStyle.Render(raw)
+	case 1:
+		raw = initials(reviewers[0])
+		styled = raw
+	default:
+		ini := initials(reviewers[0])
+		suffix := fmt.Sprintf(" +%d", len(reviewers)-1)
+		raw = ini + suffix
+		styled = ini + dimStyle.Render(suffix)
+	}
+	pad := visibleWidth - len([]rune(raw))
+	if pad < 0 {
+		pad = 0
+	}
+	return styled + strings.Repeat(" ", pad)
+}
+
+// initials returns up to 2 uppercase initials for a username. Segments are
+// delimited by ".", "-", "_" or whitespace. Falls back to the first 1-2
+// letters of the username if no separators are present.
+func initials(username string) string {
+	if username == "" {
+		return "?"
+	}
+	parts := strings.FieldsFunc(username, func(r rune) bool {
+		return r == '.' || r == '-' || r == '_' || r == ' '
+	})
+	var out []rune
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		out = append(out, unicode.ToUpper([]rune(p)[0]))
+		if len(out) >= 2 {
+			break
+		}
+	}
+	if len(out) == 0 {
+		// No separators at all; take up to 2 leading letters.
+		for _, r := range username {
+			if unicode.IsLetter(r) {
+				out = append(out, unicode.ToUpper(r))
+				if len(out) >= 2 {
+					break
+				}
+			}
+		}
+	}
+	if len(out) == 0 {
+		return "?"
+	}
+	return string(out)
 }
 
 // truncate shortens a string to maxLen runes, appending "…" if truncated.

@@ -29,9 +29,12 @@ type MRFilter struct {
 	RepoID       *int64
 	Author       *string
 	AuthorNegate bool // when true, exclude the named author instead of matching
-	Labels       []string
-	Draft        *bool // nil = all, true = drafts only, false = non-drafts only
-	Approved     *bool // nil = all, true = approved only, false = not-approved only
+	// Reviewer: nil = no filter; *"" = MRs with no reviewers assigned;
+	// *"name" = MRs that have the named reviewer assigned.
+	Reviewer *string
+	Labels   []string
+	Draft    *bool // nil = all, true = drafts only, false = non-drafts only
+	Approved *bool // nil = all, true = approved only, false = not-approved only
 }
 
 // UpsertMR inserts or updates a MergeRequest. On conflict (repo_id, iid) it
@@ -108,6 +111,14 @@ func (db *Database) ListMRs(filter MRFilter) ([]MergeRequest, error) {
 		where = append(where, "mr.approved = ?")
 		args = append(args, *filter.Approved)
 	}
+	if filter.Reviewer != nil {
+		if *filter.Reviewer == "" {
+			where = append(where, "NOT EXISTS (SELECT 1 FROM mr_reviewers WHERE mr_id = mr.id)")
+		} else {
+			where = append(where, "EXISTS (SELECT 1 FROM mr_reviewers WHERE mr_id = mr.id AND username = ?)")
+			args = append(args, *filter.Reviewer)
+		}
+	}
 	if len(filter.Labels) > 0 {
 		placeholders := make([]string, len(filter.Labels))
 		for i, l := range filter.Labels {
@@ -157,6 +168,15 @@ func (db *Database) GetMRLabels(mrID int64) ([]string, error) {
 		return nil, fmt.Errorf("GetMRLabels: %w", err)
 	}
 	return labels, nil
+}
+
+// AllReviewers returns every distinct reviewer username across all MRs, sorted alphabetically.
+func (db *Database) AllReviewers() ([]string, error) {
+	var reviewers []string
+	if err := db.Select(&reviewers, `SELECT DISTINCT username FROM mr_reviewers ORDER BY username`); err != nil {
+		return nil, fmt.Errorf("AllReviewers: %w", err)
+	}
+	return reviewers, nil
 }
 
 // AllAuthors returns every distinct author across all MRs, sorted alphabetically.

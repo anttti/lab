@@ -3,20 +3,20 @@ package glab
 import "time"
 
 type MRListItem struct {
-	ID           int         `json:"id"`
-	IID          int         `json:"iid"`
-	ProjectID    int64       `json:"project_id"`
-	Title        string      `json:"title"`
-	State        string      `json:"state"`
-	SourceBranch string      `json:"source_branch"`
-	TargetBranch string      `json:"target_branch"`
-	WebURL       string      `json:"web_url"`
-	Draft        bool        `json:"draft"`
-	UpdatedAt    time.Time   `json:"updated_at"`
-	Author       Author      `json:"author"`
-	Labels       []string    `json:"labels"`
-	Reviewers    []Reviewer  `json:"reviewers"`
-	HeadPipeline *Pipeline   `json:"head_pipeline"`
+	ID           int        `json:"id"`
+	IID          int        `json:"iid"`
+	ProjectID    int64      `json:"project_id"`
+	Title        string     `json:"title"`
+	State        string     `json:"state"`
+	SourceBranch string     `json:"source_branch"`
+	TargetBranch string     `json:"target_branch"`
+	WebURL       string     `json:"web_url"`
+	Draft        bool       `json:"draft"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	Author       Author     `json:"author"`
+	Labels       []string   `json:"labels"`
+	Reviewers    []Reviewer `json:"reviewers"`
+	HeadPipeline *Pipeline  `json:"head_pipeline"`
 }
 
 type Author struct {

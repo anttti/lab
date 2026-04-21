@@ -39,6 +39,7 @@ func helpSectionsForView(v view) []helpSection {
 			{"Filters", [][2]string{
 				{"r", "repo filter"},
 				{"a", "author filter"},
+				{"v", "reviewer filter (incl. unassigned)"},
 				{"L", "labels filter"},
 				{"d", "cycle draft filter"},
 				{"c", "cycle accepted filter"},

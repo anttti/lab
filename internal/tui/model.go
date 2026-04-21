@@ -50,6 +50,7 @@ type Model struct {
 	syncing      bool
 	syncStatus   string
 	syncProgress chan string
+	showHelp     bool
 }
 
 // NewModel creates a new root Model with the given DB and sync engine.
@@ -81,6 +82,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		return m, nil
+
+	case tea.KeyMsg:
+		if m.showHelp {
+			switch msg.String() {
+			case "esc", "q", "Q":
+				m.showHelp = false
+			}
+			return m, nil
+		}
+		if msg.String() == "?" && !m.inTextInput() {
+			m.showHelp = true
+			return m, nil
+		}
 
 	case syncTickMsg:
 		// Don't start background sync if a foreground sync is in progress.
@@ -177,13 +191,23 @@ func (w *channelWriter) Write(p []byte) (int, error) {
 
 // View delegates rendering to the currently active sub-model.
 func (m *Model) View() string {
+	var base string
 	switch m.current {
 	case viewMRList:
-		return m.mrList.view(m)
+		base = m.mrList.view(m)
 	case viewMRDetail:
-		return m.mrDetail.view(m)
+		base = m.mrDetail.view(m)
 	case viewThread:
-		return m.thread.view(m)
+		base = m.thread.view(m)
 	}
-	return ""
+	if m.showHelp {
+		return overlayHelp(m.current, m.width, m.height)
+	}
+	return base
+}
+
+// inTextInput reports whether any sub-model is currently accepting free-form
+// text input, so global shortcuts (e.g. "?") shouldn't be hijacked.
+func (m *Model) inTextInput() bool {
+	return m.current == viewMRList && m.mrList.autocomplete != nil
 }

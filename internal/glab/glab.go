@@ -47,10 +47,13 @@ func (c *Client) ListDiscussions(repoURL string, projectID int64, mrIID int) ([]
 	return discussions, nil
 }
 
-// MRDetail holds pipeline and approval state from the MR detail endpoint.
+// MRDetail holds pipeline, approval, reviewer and state info from the MR
+// detail endpoint.
 type MRDetail struct {
 	PipelineStatus string
 	Approved       bool
+	State          string
+	Reviewers      []Reviewer
 }
 
 func (c *Client) GetMRDetail(repoURL string, projectID int64, mrIID int) (MRDetail, error) {
@@ -60,8 +63,10 @@ func (c *Client) GetMRDetail(repoURL string, projectID int64, mrIID int) (MRDeta
 		return MRDetail{}, fmt.Errorf("glab api MR detail: %s", cmdError(err))
 	}
 	var detail struct {
-		HeadPipeline *Pipeline   `json:"head_pipeline"`
-		ApprovedBy   []approver  `json:"approved_by"`
+		HeadPipeline *Pipeline  `json:"head_pipeline"`
+		ApprovedBy   []approver `json:"approved_by"`
+		State        string     `json:"state"`
+		Reviewers    []Reviewer `json:"reviewers"`
 	}
 	if err := json.Unmarshal(out, &detail); err != nil {
 		return MRDetail{}, fmt.Errorf("parse MR detail: %w", err)
@@ -71,6 +76,8 @@ func (c *Client) GetMRDetail(repoURL string, projectID int64, mrIID int) (MRDeta
 		result.PipelineStatus = detail.HeadPipeline.Status
 	}
 	result.Approved = len(detail.ApprovedBy) > 0
+	result.State = detail.State
+	result.Reviewers = detail.Reviewers
 	return result, nil
 }
 

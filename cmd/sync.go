@@ -42,15 +42,15 @@ var syncCmd = &cobra.Command{
 		}
 
 		// In loop mode (used by the background daemon), emit desktop
-		// notifications for updates on MRs authored by the configured user.
-		username, err := database.GetConfig("username")
+		// notifications for updates per the configured notification filters.
+		cfg, err := loadEffectiveConfig(database)
 		if err != nil {
-			return fmt.Errorf("get username: %w", err)
+			return err
 		}
 		notifier := notify.New()
 
 		runSync := func() error {
-			if err := engine.SyncAllWithNotifications(username, notifier); err != nil {
+			if err := engine.SyncAllWithNotifications(cfg.Username, cfg.Notifications, notifier); err != nil {
 				return fmt.Errorf("sync: %w", err)
 			}
 			fmt.Println("Done.")

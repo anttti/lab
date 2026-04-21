@@ -3,23 +3,33 @@ package glab
 import "time"
 
 type MRListItem struct {
-	ID           int       `json:"id"`
-	IID          int       `json:"iid"`
-	ProjectID    int64     `json:"project_id"`
-	Title        string    `json:"title"`
-	State        string    `json:"state"`
-	SourceBranch string    `json:"source_branch"`
-	TargetBranch string    `json:"target_branch"`
-	WebURL       string    `json:"web_url"`
-	Draft        bool      `json:"draft"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	Author       Author    `json:"author"`
-	Labels       []string  `json:"labels"`
-	HeadPipeline *Pipeline `json:"head_pipeline"`
+	ID           int         `json:"id"`
+	IID          int         `json:"iid"`
+	ProjectID    int64       `json:"project_id"`
+	Title        string      `json:"title"`
+	State        string      `json:"state"`
+	SourceBranch string      `json:"source_branch"`
+	TargetBranch string      `json:"target_branch"`
+	WebURL       string      `json:"web_url"`
+	Draft        bool        `json:"draft"`
+	UpdatedAt    time.Time   `json:"updated_at"`
+	Author       Author      `json:"author"`
+	Labels       []string    `json:"labels"`
+	Reviewers    []Reviewer  `json:"reviewers"`
+	HeadPipeline *Pipeline   `json:"head_pipeline"`
 }
 
 type Author struct {
 	Username string `json:"username"`
+}
+
+// Reviewer captures the minimal reviewer info returned by GitLab's MR
+// endpoints. ReviewState is a GitLab 15+ field ("unreviewed", "reviewed",
+// "requested_changes", "approved", "unapproved"); it may be empty on
+// older instances.
+type Reviewer struct {
+	Username    string `json:"username"`
+	ReviewState string `json:"reviewer_state"`
 }
 
 type Pipeline struct {

@@ -36,12 +36,14 @@ Platform-specific files: `daemon_darwin.go` (launchd install/uninstall) and `dae
 
 SQLite persistence layer using `jmoiron/sqlx` over `modernc.org/sqlite` (pure Go, no CGO). WAL mode is enabled via connection string pragmas for concurrent read/write access.
 
-**Schema** (5 tables):
+**Schema** (7 tables):
 - `repos` — registered repositories with local path and GitLab URL
 - `merge_requests` — MR metadata, UNIQUE on (repo_id, iid)
 - `mr_labels` — many-to-many join table for MR labels
+- `mr_reviewers` — many-to-many join table for MR reviewers with review state
 - `comments` — discussion notes with optional file position, UNIQUE on (mr_id, note_id)
-- `config` — key-value store for user settings and filter state
+- `config` — key-value store for filter state (and legacy username/sync_interval)
+- `thread_reads` — read receipts per discussion thread
 
 Migrations use `CREATE TABLE IF NOT EXISTS`. Schema changes should add new migration statements.
 

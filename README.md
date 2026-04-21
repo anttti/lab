@@ -106,11 +106,7 @@ lab daemon uninstall
 ```
 
 The sync interval defaults to 5 minutes (10 minutes if installed via `lab
---install`). Change it with:
-
-```bash
-lab config set sync_interval 10m
-```
+--install`). See **Configuration** below for how to change it.
 
 The TUI also syncs in the background while running.
 
@@ -118,14 +114,57 @@ The TUI also syncs in the background while running.
 
 When the daemon is running in loop mode and [terminal-notifier](https://github.com/julienXX/terminal-notifier)
 is on `PATH` (`brew install terminal-notifier`), lab posts a macOS notification
-whenever one of your MRs picks up activity between syncs — new comments,
-pipeline status changes, or an approval. "Your MRs" is determined by the
-`username` config value. Clicking the notification opens the MR web URL.
+for each change it detects on one of your MRs between syncs. Clicking the
+notification opens the MR web URL.
+
+## Configuration
+
+`lab --install` writes a JSON file at `~/.config/lab/lab.json` with default
+values. You can also create it by hand. Fields that are omitted fall back to
+the defaults shown below.
+
+```json
+{
+  "sync_interval": "10m",
+  "username": "your-gitlab-username",
+  "notifications": {
+    "new_comment": true,
+    "pipeline_failed": true,
+    "approved": true,
+    "mr_merged": true,
+    "new_review_request": true,
+    "rereview_request": true
+  }
+}
+```
+
+- **`sync_interval`** — how often the background daemon pulls fresh data
+  (any Go `time.ParseDuration` string: `30s`, `5m`, `1h`, …). The launchd
+  plist reads this value at `lab --install` time — rerun `lab --install`
+  after changing it to reload the agent.
+- **`username`** — your GitLab username. Used to determine which MRs are
+  yours (for authored-by-you triggers) and when you are a reviewer.
+- **`notifications`** — per-trigger toggles. Every trigger is on by default:
+  - `new_comment` — a comment appears on one of your MRs.
+  - `pipeline_failed` — one of your MRs' pipelines transitions to `failed`
+    or `canceled`.
+  - `approved` — one of your MRs receives its first approval.
+  - `mr_merged` — one of your MRs was merged.
+  - `new_review_request` — you were added as a reviewer on someone else's MR.
+  - `rereview_request` — a review was re-requested (your reviewer state
+    reset to `unreviewed`). Requires GitLab 15+ which exposes
+    `reviewer_state`.
+
+For backwards compatibility, `lab config set sync_interval …` /
+`lab config set username …` still work; they write to the SQLite `config`
+table and are used as a fallback when the same key is missing from
+`lab.json`.
 
 ## Data storage
 
 All data is stored in `~/.config/lab/`:
 
+- `lab.json` — user configuration (sync interval, username, notification toggles)
 - `lab.db` — SQLite database (MRs, comments, config)
 - `daemon.pid` — PID file for the manual daemon
 - `daemon.log` — Daemon log output

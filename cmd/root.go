@@ -38,9 +38,9 @@ var rootCmd = &cobra.Command{
 	},
 }
 
-// runInstall ensures lab.json exists with defaults (creating it if missing)
-// and installs the background sync daemon as a launchd agent using the
-// interval from that file.
+// runInstall ensures lab.json exists with defaults (creating it if missing,
+// or overwriting it if it's malformed) and installs the background sync
+// daemon as a launchd agent using the interval from that file.
 func runInstall() error {
 	database, err := openDB()
 	if err != nil {
@@ -49,14 +49,15 @@ func runInstall() error {
 	defer database.Close()
 
 	dir := dataDir()
-	cfg, err := config.Load(dir)
-	if err != nil {
-		return fmt.Errorf("load lab.json: %w", err)
-	}
+	path := config.Path(dir)
+	cfg, loadErr := config.Load(dir)
 
-	if _, err := os.Stat(config.Path(dir)); os.IsNotExist(err) {
-		// Seed lab.json from any legacy DB config values so the user has
-		// a well-documented file to edit.
+	_, statErr := os.Stat(path)
+	fileMissing := os.IsNotExist(statErr)
+
+	if fileMissing || loadErr != nil {
+		// Either no file yet, or it's malformed. Seed a fresh one from
+		// any legacy DB config so the user has a well-documented file.
 		if cfg.Username == "" {
 			if v, err := database.GetConfig("username"); err == nil && v != "" {
 				cfg.Username = v
@@ -68,7 +69,11 @@ func runInstall() error {
 		if err := config.Save(dir, cfg); err != nil {
 			return fmt.Errorf("write lab.json: %w", err)
 		}
-		fmt.Printf("Created %s\n", config.Path(dir))
+		if fileMissing {
+			fmt.Printf("Created %s\n", path)
+		} else {
+			fmt.Printf("Overwrote malformed %s with defaults (%v)\n", path, loadErr)
+		}
 	}
 
 	binary, err := labBinaryPath()
@@ -82,18 +87,17 @@ func runInstall() error {
 
 	fmt.Printf("Sync interval set to %s.\n", cfg.SyncInterval)
 	fmt.Println("Install terminal-notifier (brew install terminal-notifier) to receive desktop notifications.")
-	fmt.Printf("Edit %s to customise which changes trigger notifications.\n", config.Path(dir))
+	fmt.Printf("Edit %s to customise which changes trigger notifications.\n", path)
 	return nil
 }
 
 // loadEffectiveConfig returns the lab.json config with per-user values
 // (username, sync_interval) falling back to legacy SQLite config when the
-// JSON file doesn't set them.
+// JSON file doesn't set them. A non-nil error means lab.json was present
+// but unreadable or malformed; the returned Config is still usable
+// (defaults + DB fallbacks) so callers can log/notify and keep running.
 func loadEffectiveConfig(database *db.Database) (config.Config, error) {
-	cfg, err := config.Load(dataDir())
-	if err != nil {
-		return cfg, fmt.Errorf("load lab.json: %w", err)
-	}
+	cfg, loadErr := config.Load(dataDir())
 	if cfg.Username == "" {
 		if v, err := database.GetConfig("username"); err == nil {
 			cfg.Username = v
@@ -104,7 +108,7 @@ func loadEffectiveConfig(database *db.Database) (config.Config, error) {
 			cfg.SyncInterval = v
 		}
 	}
-	return cfg, nil
+	return cfg, loadErr
 }
 
 func init() {

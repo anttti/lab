@@ -73,13 +73,18 @@ func TestLoad_MissingFieldsInheritDefaults(t *testing.T) {
 	}
 }
 
-// TestLoad_InvalidJSON returns an error.
+// TestLoad_InvalidJSON returns Default() alongside an error so callers can
+// log/notify and keep running with sane defaults instead of failing hard.
 func TestLoad_InvalidJSON(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, Filename), []byte(`{not json`), 0644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	if _, err := Load(dir); err == nil {
-		t.Fatal("Load should fail on invalid JSON")
+	cfg, err := Load(dir)
+	if err == nil {
+		t.Fatal("Load should report a parse error")
+	}
+	if cfg != Default() {
+		t.Errorf("Load: want Default() on parse error, got %+v", cfg)
 	}
 }

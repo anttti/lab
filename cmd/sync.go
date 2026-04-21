@@ -43,11 +43,14 @@ var syncCmd = &cobra.Command{
 
 		// In loop mode (used by the background daemon), emit desktop
 		// notifications for updates per the configured notification filters.
-		cfg, err := loadEffectiveConfig(database)
-		if err != nil {
-			return err
-		}
+		// A malformed lab.json is not fatal — we log, notify the user once,
+		// and proceed with default settings.
 		notifier := notify.New()
+		cfg, cfgErr := loadEffectiveConfig(database)
+		if cfgErr != nil {
+			log.Printf("config error: %v (falling back to defaults)", cfgErr)
+			_ = notifier.Notify("lab: config error", cfgErr.Error()+" — using defaults", "")
+		}
 
 		runSync := func() error {
 			if err := engine.SyncAllWithNotifications(cfg.Username, cfg.Notifications, notifier); err != nil {

@@ -57,21 +57,22 @@ func Path(dataDir string) string {
 	return filepath.Join(dataDir, Filename)
 }
 
-// Load reads lab.json from dataDir. If the file does not exist, Default() is
-// returned with no error. Missing individual fields inherit defaults.
+// Load reads lab.json from dataDir. A missing file returns Default() and no
+// error. A malformed file returns Default() plus a non-nil error so the
+// caller can surface the problem; callers that want to keep going can
+// safely use the returned Config.
 func Load(dataDir string) (Config, error) {
-	cfg := Default()
-
 	data, err := os.ReadFile(Path(dataDir))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return cfg, nil
+			return Default(), nil
 		}
-		return cfg, fmt.Errorf("read %s: %w", Path(dataDir), err)
+		return Default(), fmt.Errorf("read %s: %w", Path(dataDir), err)
 	}
 
+	cfg := Default()
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("parse %s: %w", Path(dataDir), err)
+		return Default(), fmt.Errorf("parse %s: %w", Path(dataDir), err)
 	}
 	if cfg.SyncInterval == "" {
 		cfg.SyncInterval = Default().SyncInterval

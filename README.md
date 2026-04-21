@@ -73,6 +73,7 @@ Arrow keys also work.
 
 ```bash
 lab                          # Launch TUI
+lab --install                # Install the sync daemon (10 min interval, notifies via terminal-notifier)
 lab add <path>               # Register a local git repo
 lab remove <path>            # Unregister a repo
 lab list                     # List registered repos
@@ -92,6 +93,9 @@ lab daemon uninstall         # Remove launchd service
 The daemon keeps your MR data fresh when the TUI isn't running:
 
 ```bash
+# One-shot install: sets 10 min sync interval + loads launchd agent.
+lab --install
+
 # Manual daemon (stops when you stop it)
 lab daemon start
 lab daemon stop
@@ -101,13 +105,22 @@ lab daemon install
 lab daemon uninstall
 ```
 
-The sync interval defaults to 5 minutes. Change it with:
+The sync interval defaults to 5 minutes (10 minutes if installed via `lab
+--install`). Change it with:
 
 ```bash
 lab config set sync_interval 10m
 ```
 
 The TUI also syncs in the background while running.
+
+### Desktop notifications
+
+When the daemon is running in loop mode and [terminal-notifier](https://github.com/julienXX/terminal-notifier)
+is on `PATH` (`brew install terminal-notifier`), lab posts a macOS notification
+whenever one of your MRs picks up activity between syncs — new comments,
+pipeline status changes, or an approval. "Your MRs" is determined by the
+`username` config value. Clicking the notification opens the MR web URL.
 
 ## Data storage
 

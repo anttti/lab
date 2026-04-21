@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"lab/internal/glab"
+	"lab/internal/notify"
 	"lab/internal/sync"
 	"github.com/spf13/cobra"
 )
@@ -32,7 +33,7 @@ var syncCmd = &cobra.Command{
 		client := glab.New()
 		engine := sync.New(database, client)
 
-		runSync := func() error {
+		if !syncLoop {
 			if err := engine.SyncAll(); err != nil {
 				return fmt.Errorf("sync: %w", err)
 			}
@@ -40,8 +41,20 @@ var syncCmd = &cobra.Command{
 			return nil
 		}
 
-		if !syncLoop {
-			return runSync()
+		// In loop mode (used by the background daemon), emit desktop
+		// notifications for updates on MRs authored by the configured user.
+		username, err := database.GetConfig("username")
+		if err != nil {
+			return fmt.Errorf("get username: %w", err)
+		}
+		notifier := notify.New()
+
+		runSync := func() error {
+			if err := engine.SyncAllWithNotifications(username, notifier); err != nil {
+				return fmt.Errorf("sync: %w", err)
+			}
+			fmt.Println("Done.")
+			return nil
 		}
 
 		// Loop mode: handle signals gracefully

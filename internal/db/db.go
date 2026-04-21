@@ -106,6 +106,13 @@ CREATE TABLE IF NOT EXISTS thread_reads (
     read_at       DATETIME NOT NULL,
     PRIMARY KEY (mr_id, discussion_id)
 );
+
+CREATE TABLE IF NOT EXISTS mr_reviewers (
+    mr_id    INTEGER NOT NULL REFERENCES merge_requests(id) ON DELETE CASCADE,
+    username TEXT NOT NULL,
+    state    TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (mr_id, username)
+);
 `
 	if _, err := db.Exec(schema); err != nil {
 		return err

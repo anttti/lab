@@ -7,6 +7,7 @@ import (
 	"os"
 	"sync"
 
+	"lab/internal/config"
 	"lab/internal/db"
 	"lab/internal/glab"
 	"lab/internal/notify"
@@ -49,28 +50,29 @@ func (e *Engine) SyncAllWithWriter(w io.Writer) error {
 }
 
 // SyncAllWithNotifications runs SyncAll and emits a notification for each
-// change detected on MRs authored by username. If username is empty or
-// notifier is nil, it behaves like SyncAll.
-func (e *Engine) SyncAllWithNotifications(username string, notifier notify.Notifier) error {
+// change detected between pre- and post-sync snapshots that matches the
+// enabled triggers in cfg for username. If username is empty or notifier is
+// nil it behaves like SyncAll.
+func (e *Engine) SyncAllWithNotifications(username string, cfg config.Notifications, notifier notify.Notifier) error {
 	if notifier == nil || username == "" {
 		return e.SyncAll()
 	}
 
-	pre, err := snapshotUserMRs(e.db, username)
+	pre, err := snapshotAll(e.db)
 	if err != nil {
-		log.Printf("snapshot user MRs (pre): %v", err)
+		log.Printf("snapshot (pre): %v", err)
 		pre = map[int64]mrSnapshot{}
 	}
 
 	syncErr := e.SyncAll()
 
-	post, err := snapshotUserMRs(e.db, username)
+	post, err := snapshotAll(e.db)
 	if err != nil {
-		log.Printf("snapshot user MRs (post): %v", err)
+		log.Printf("snapshot (post): %v", err)
 		return syncErr
 	}
 
-	for _, u := range diffSnapshots(pre, post) {
+	for _, u := range diffSnapshots(pre, post, username, cfg, e.client) {
 		if err := notifier.Notify(u.Title, u.Message, u.WebURL); err != nil {
 			log.Printf("notify: %v", err)
 		}
@@ -201,11 +203,29 @@ func (e *Engine) syncMRItem(repo *db.Repo, glabMR glab.MRListItem) error {
 		return fmt.Errorf("SyncRepo set labels for MR !%d: %w", glabMR.IID, err)
 	}
 
+	if err := e.db.SetMRReviewers(mr.ID, mergeReviewers(glabMR.Reviewers, detail.Reviewers)); err != nil {
+		return fmt.Errorf("SyncRepo set reviewers for MR !%d: %w", glabMR.IID, err)
+	}
+
 	if err := e.syncDiscussions(repo, mr, glabMR.IID); err != nil {
 		log.Printf("SyncRepo sync discussions for MR !%d: %v", glabMR.IID, err)
 	}
 
 	return nil
+}
+
+// mergeReviewers prefers detail reviewers (which include ReviewState) over
+// list reviewers, but falls back to the list if the detail call failed.
+func mergeReviewers(list, detail []glab.Reviewer) []db.Reviewer {
+	src := detail
+	if len(src) == 0 {
+		src = list
+	}
+	out := make([]db.Reviewer, 0, len(src))
+	for _, r := range src {
+		out = append(out, db.Reviewer{Username: r.Username, State: r.ReviewState})
+	}
+	return out
 }
 
 // SyncMR syncs discussions for a single MR identified by its IID.

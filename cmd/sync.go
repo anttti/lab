@@ -42,15 +42,18 @@ var syncCmd = &cobra.Command{
 		}
 
 		// In loop mode (used by the background daemon), emit desktop
-		// notifications for updates on MRs authored by the configured user.
-		username, err := database.GetConfig("username")
-		if err != nil {
-			return fmt.Errorf("get username: %w", err)
-		}
+		// notifications for updates per the configured notification filters.
+		// A malformed lab.json is not fatal — we log, notify the user once,
+		// and proceed with default settings.
 		notifier := notify.New()
+		cfg, cfgErr := loadEffectiveConfig(database)
+		if cfgErr != nil {
+			log.Printf("config error: %v (falling back to defaults)", cfgErr)
+			_ = notifier.Notify("lab: config error", cfgErr.Error()+" — using defaults", "")
+		}
 
 		runSync := func() error {
-			if err := engine.SyncAllWithNotifications(username, notifier); err != nil {
+			if err := engine.SyncAllWithNotifications(cfg.Username, cfg.Notifications, notifier); err != nil {
 				return fmt.Errorf("sync: %w", err)
 			}
 			fmt.Println("Done.")

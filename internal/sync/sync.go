@@ -9,6 +9,7 @@ import (
 
 	"lab/internal/db"
 	"lab/internal/glab"
+	"lab/internal/notify"
 )
 
 const maxConcurrency = 4
@@ -45,6 +46,37 @@ func (e *Engine) SyncAllWithWriter(w io.Writer) error {
 	e.out = w
 	defer func() { e.out = old }()
 	return e.SyncAll()
+}
+
+// SyncAllWithNotifications runs SyncAll and emits a notification for each
+// change detected on MRs authored by username. If username is empty or
+// notifier is nil, it behaves like SyncAll.
+func (e *Engine) SyncAllWithNotifications(username string, notifier notify.Notifier) error {
+	if notifier == nil || username == "" {
+		return e.SyncAll()
+	}
+
+	pre, err := snapshotUserMRs(e.db, username)
+	if err != nil {
+		log.Printf("snapshot user MRs (pre): %v", err)
+		pre = map[int64]mrSnapshot{}
+	}
+
+	syncErr := e.SyncAll()
+
+	post, err := snapshotUserMRs(e.db, username)
+	if err != nil {
+		log.Printf("snapshot user MRs (post): %v", err)
+		return syncErr
+	}
+
+	for _, u := range diffSnapshots(pre, post) {
+		if err := notifier.Notify(u.Title, u.Message, u.WebURL); err != nil {
+			log.Printf("notify: %v", err)
+		}
+	}
+
+	return syncErr
 }
 
 // SyncAll syncs all repos in the database.
